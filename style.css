@@ -1,0 +1,200 @@
+/* style.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+        height: 100%;
+    overflow: hidden;
+    background-color: #111827;
+}
+
+#social-wall {
+    padding: 0px;
+    display: grid;
+    width: 100vw;
+    height: 100vh;
+}
+
+.image-container {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    position: relative;
+    background-color: rgba(0, 0, 0, 0.2);
+}
+
+.image-container img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+/* Efeito Hero (Zoom e Brilho) */
+.hero-active {
+    z-index: 10;
+    transform: scale(1.1);
+    box-shadow: 0 0 20px rgba(255, 255, 255, 0.5);
+    transition: transform 0.5s ease, box-shadow 0.5s ease;
+    border: 2px solid white;
+}
+
+/* Remove scrollbars no Admin */
+::-webkit-scrollbar {
+    width: 8px;
+}
+
+::-webkit-scrollbar-track {}
+
+::-webkit-scrollbar-thumb {
+    border-radius: 4px;
+}
+
+
+#main-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+}
+
+/* --- PAINEL GLASSMORPHISM --- */
+#config-panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    width: 380px; 
+    height: 100vh;
+    padding: 1.5rem;
+    
+    background: rgba(20, 20, 30, 0.65); 
+    backdrop-filter: blur(16px); 
+    -webkit-backdrop-filter: blur(16px);
+    border-left: 1px solid rgba(255, 255, 255, 0.1); 
+    box-shadow: -10px 0 40px rgba(0, 0, 0, 0.5);
+    
+    z-index: 100;
+    transform: translateX(100%);
+    transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1); 
+    color: white;
+    overflow-y: auto;
+}
+
+#config-panel.open {
+    transform: translateX(0);
+}
+
+#config-panel::-webkit-scrollbar { width: 6px; }
+#config-panel::-webkit-scrollbar-track { background: transparent; }
+#config-panel::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.2); border-radius: 3px; }
+
+/* --- SEÇÕES DO PAINEL --- */
+.config-section {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+    transition: background 0.3s;
+}
+.config-section:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+/* --- INPUTS & SELECTS --- */
+input[type="text"],
+input[type="number"],
+select {
+    background: rgba(0, 0, 0, 0.3) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    color: #e5e7eb !important;
+    border-radius: 8px !important;
+    padding: 8px 12px !important;
+    transition: all 0.2s ease;
+}
+
+input[type="text"]:focus,
+input[type="number"]:focus,
+select:focus {
+    outline: none;
+    border-color: #6366f1 !important; 
+    background: rgba(0, 0, 0, 0.5) !important;
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+}
+
+/* --- SLIDERS --- */
+input[type=range] {
+    -webkit-appearance: none; 
+    width: 100%; 
+    background: transparent; 
+    margin: 10px 0;
+}
+input[type=range]:focus { outline: none; }
+input[type=range]::-webkit-slider-runnable-track {
+    width: 100%;
+    height: 6px;
+    cursor: pointer;
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 3px;
+}
+input[type=range]::-webkit-slider-thumb {
+    height: 18px;
+    width: 18px;
+    border-radius: 50%;
+    background: #6366f1;
+    cursor: pointer;
+    -webkit-appearance: none;
+    margin-top: -6px; 
+    box-shadow: 0 0 10px rgba(99, 102, 241, 0.5);
+    transition: transform 0.1s, background 0.2s;
+}
+input[type=range]:hover::-webkit-slider-thumb {
+    transform: scale(1.1);
+    background: #818cf8;
+}
+
+/* --- EFEITO HERO --- */
+.hero-active {
+    z-index: 9999 !important; 
+    position: relative !important;
+    overflow: visible !important; 
+    transform: scale(1.5) !important; 
+    box-shadow: 0 30px 60px rgba(0, 0, 0, 0.9) !important; 
+    border: 3px solid rgba(255, 255, 255, 0.9); 
+    border-radius: 8px;
+    transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
+    background-color: #000; 
+}
+
+.animate-in {
+    opacity: 0 !important;
+}
+
+/* --- MODO DE REMOÇÃO (NOVO) --- */
+/* Quando o container principal tem a classe .removal-active */
+.removal-active .image-container {
+    cursor: pointer; /* Mãozinha */
+    transition: all 0.2s ease;
+}
+
+.removal-active .image-container:hover::after {
+    content: "🗑️"; /* Ícone de lixeira */
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 3rem;
+    z-index: 20;
+    pointer-events: none;
+}
+
+.removal-active .image-container:hover img {
+    filter: grayscale(100%) brightness(40%); /* Escurece e tira cor */
+    transform: scale(0.95);
+}

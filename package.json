@@ -1,0 +1,28 @@
+{
+  "name": "social-wall-project",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev:frontend": "vite",
+    "dev:backend": "node server.js",
+    "dev": "echo 'Inicie em dois terminais: npm run dev:backend e npm run dev:frontend'",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "chokidar": "^4.0.3",
+    "cors": "^2.8.5",
+    "dropbox": "^10.34.0",
+    "express": "^4.19.2",
+    "isomorphic-fetch": "^3.0.0",
+    "multer": "^2.0.2",
+    "sharp": "^0.33.4"
+  },
+  "devDependencies": {
+    "autoprefixer": "^10.4.19",
+    "postcss": "^8.4.38",
+    "tailwindcss": "^3.4.3",
+    "vite": "^5.2.0"
+  }
+}

@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Social Wall</title>
+</head>
+<body class="bg-gray-900 text-white">
+
+    <!-- CONTAINER PRINCIPAL -->
+    <div id="main-container">
+        <div id="social-wall" class="w-full h-full p-2 grid gap-2"></div>
+    </div>
+
+    <!-- BOTÃO FLUTUANTE (Para abrir o menu localmente) -->
+    <button id="open-config"
+        class="fixed bottom-4 right-4 z-50 p-3 bg-indigo-600 text-white rounded-full shadow-lg hover:bg-indigo-700 transition duration-150 opacity-50 hover:opacity-100"
+        title="Configurações (ou tecle 'C')">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+        </svg>
+    </button>
+
+    <!-- PAINEL LATERAL (Escondido por padrão) -->
+    <div id="config-panel">
+        <div class="flex justify-between items-center mb-6 border-b border-white/10 pb-2">
+            <h2 class="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-purple-400">Configurações</h2>
+            <button id="close-config-x" class="text-gray-400 hover:text-white transition">&times;</button>
+        </div>
+
+        <div class="config-section flex justify-between text-center bg-indigo-900/20">
+            <div>
+                <p class="text-xs text-gray-400">Backend</p>
+                <p class="text-xl font-bold text-indigo-300" id="total-backend-images">0</p>
+            </div>
+            <div>
+                <p class="text-xs text-gray-400">Fila</p>
+                <p class="text-xl font-bold text-yellow-400" id="queue-count">0</p>
+            </div>
+            <div>
+                <p class="text-xs text-gray-400">Tela</p>
+                <p class="text-xl font-bold text-white" id="total-on-screen">0</p>
+            </div>
+        </div>
+
+        <div class="config-section" style="border-color: rgba(34, 197, 94, 0.3);">
+            <h3 class="text-sm font-bold text-green-400 mb-3 uppercase">Controle</h3>
+            <button id="toggle-processing"
+                class="w-full p-3 bg-green-600 hover:bg-green-500 rounded-lg font-bold transition mb-4 flex items-center justify-center gap-2">
+                <span id="toggle-icon">▶️</span> <span id="toggle-text">Começar</span>
+            </button>
+            <label class="block text-xs font-medium mb-2 text-gray-300">Intervalo: <span id="process-interval-val"
+                    class="text-white font-bold">1.5s</span></label>
+            <input type="range" id="process-interval" min="0.5" max="10" step="0.5" value="1.5">
+            </div>
+
+        <div class="config-section">
+            <div class="flex items-center justify-between mb-3">
+                <h3 class="text-sm font-bold text-indigo-300 uppercase">Automático</h3>
+                <input type="checkbox" id="auto-grid" class="h-5 w-5 text-indigo-600 rounded cursor-pointer">
+            </div>
+            <div id="auto-settings" class="flex gap-2">
+                <input type="number" id="photo-width"
+                    class="w-1/2 p-2 rounded bg-gray-800 border border-gray-600 text-white text-xs" placeholder="Largura">
+                <input type="number" id="photo-height"
+                    class="w-1/2 p-2 rounded bg-gray-800 border border-gray-600 text-white text-xs" placeholder="Altura">
+            </div>
+        </div>
+
+        <div class="config-section">
+            <h3 class="text-sm font-bold text-indigo-300 mb-3 uppercase">Manual</h3>
+            <div id="manual-settings" class="flex gap-2">
+                <input type="number" id="grid-cols" class="w-1/2 p-2 rounded bg-gray-800 border border-gray-600 text-white"
+                    placeholder="Cols">
+                <input type="number" id="grid-rows" class="w-1/2 p-2 rounded bg-gray-800 border border-gray-600 text-white"
+                    placeholder="Rows">
+            </div>
+        </div>
+
+        <div class="config-section">
+            <h3 class="text-sm font-bold text-indigo-300 mb-3 uppercase">Aparência</h3>
+            <label class="block text-xs mb-1">Gap: <span id="gap-value">8</span>px</label>
+            <input type="range" id="grid-gap" min="0" max="50" value="8" class="w-full mb-3">
+            
+            <label class="block text-xs mb-1">Opacidade</label>
+            <input type="range" id="image-opacity" min="0" max="100" value="80" class="w-full mb-3">
+            <input type="text" id="background-url" placeholder="Fundo URL"
+                class="w-full p-2 rounded bg-gray-800 border border-gray-600 text-xs mb-2">
+            <button id="apply-background" class="w-full p-2 bg-indigo-600 rounded text-xs font-bold">Aplicar Fundo</button>
+        </div>
+
+        <div class="config-section">
+            <h3 class="text-sm font-bold text-indigo-300 mb-3 uppercase">Animações</h3>
+            <select id="anim-type" class="w-full p-2 rounded bg-gray-800 border border-gray-600 text-white mb-2 text-xs">
+                <option value="fade">Fade</option>
+                <option value="pop">Pop</option>
+                <option value="slide-up">Slide Up</option>
+                <option value="rotate">Rotate</option>
+            </select>
+            <label class="block text-xs mb-1">Duração: <span id="duration-value">800</span>ms</label>
+            <input type="range" id="anim-duration" min="200" max="3000" step="100" value="800" class="w-full">
+        </div>
+
+        <div class="config-section">
+            <h3 class="text-sm font-bold text-indigo-300 mb-3 uppercase">Opções</h3>
+            <div class="flex items-center mb-2"><input type="checkbox" id="random-position" class="mr-2"><label
+                    class="text-xs">Aleatório</label></div>
+            <div class="flex items-center mb-2"><input type="checkbox" id="persist-state" class="mr-2"><label
+                    class="text-xs">Persistir (F5)</label></div>
+            <div class="flex items-center mb-2"><input type="checkbox" id="hero-enabled" class="mr-2"><label class="text-xs">Efeito
+                    Hero</label></div>
+            <div class="flex items-center mb-2"><input type="checkbox" id="idle-enabled" class="mr-2"><label class="text-xs">Modo
+                    Descanso</label></div>
+            <div class="flex items-center mb-2"><input type="checkbox" id="removal-mode" class="mr-2"><label
+                    class="text-xs text-red-400">Modo Remoção</label></div>
+            
+            <!-- Inputs ocultos para valores numéricos dos efeitos (simplificado para o painel lateral) -->
+            <input type="hidden" id="hero-interval" value="15">
+            <input type="hidden" id="idle-timeout" value="60">
+            
+            <button id="force-update" class="w-full mt-2 p-2 bg-blue-600 rounded text-xs font-bold">Forçar Update</button>
+        </div>
+
+        <button id="close-config" class="w-full p-3 bg-red-600 hover:bg-red-700 rounded font-bold mt-2">Fechar</button>
+    </div>
+
+    <script type="module" src="/main.js"></script>
+</body>
+</html>
