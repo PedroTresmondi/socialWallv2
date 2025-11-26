@@ -5,7 +5,70 @@ let config = loadConfig();
 let globalBackendImages = [];
 let lastHeroTime = Date.now();
 let lastActivityTime = Date.now();
-let queueTimeoutId = null; 
+let queueTimeoutId = null;
+
+// --- FUNÇÃO DE EXPORTAÇÃO (SOUVENIR) ---
+
+/**
+ * Calcula qual tile do grid (row/col) esse slot representa
+ * e envia pro servidor junto com a foto.
+ *
+ * @param {string} photoId   - ID / nome do arquivo da foto (ex: dbx-...jpg)
+ * @param {HTMLElement} slotDiv - DIV do slot no grid
+ * @param {object} currentConfig - config atual (contém cols, rows, backgroundUrl, etc.)
+ * @param {number} slotIndex - índice do slot no array (0..cols*rows-1)
+ */
+function triggerSouvenirExport(photoId, slotDiv, currentConfig, slotIndex) {
+    if (!currentConfig.exportEnabled) return;
+
+    const cols = currentConfig.cols || 1;
+    const rows = currentConfig.rows || 1;
+
+    const row = Math.floor(slotIndex / cols);
+    const col = slotIndex % cols;
+
+    let opacity = currentConfig.opacity;
+    if (typeof opacity === 'string') opacity = parseFloat(opacity);
+    if (Number.isNaN(opacity) || opacity < 0 || opacity > 1) opacity = 1;
+
+    const exportData = {
+        photoId,
+        // 👇 Toggle: se exportWithBackground === false, não manda background
+        backgroundUrl: currentConfig.exportWithBackground === false ? null : currentConfig.backgroundUrl,
+        tile: {
+            row,
+            col,
+            cols,
+            rows
+        },
+        exportSize: {
+            w: currentConfig.exportWidth || 1080,
+            h: currentConfig.exportHeight || 1080
+        },
+        opacity
+    };
+
+    fetch('http://localhost:3000/api/export-collage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(exportData)
+    })
+        .then(res => {
+            if (!res.ok) throw new Error(`Server responded with status ${res.status}`);
+            return res.json();
+        })
+        .then(data => {
+            if (data && data.url) {
+                console.log('[Exportador Wall] Souvenir OK:', data.url, 'backgroundUsed:', data.backgroundUsed);
+            } else {
+                console.warn('[Exportador Wall] Resposta inesperada da API de export:', data);
+            }
+        })
+        .catch(err => {
+            console.error('[Exportador Wall] Erro ao exportar:', err);
+        });
+}
+
 
 // --- COMUNICAÇÃO ---
 if (syncChannel) {
@@ -14,7 +77,6 @@ if (syncChannel) {
             config = event.data.data;
             requestAnimationFrame(() => applyLayoutAndEffects());
         }
-        // Removemos a chamada forçada aqui para respeitar o timer
     };
 }
 
@@ -22,7 +84,6 @@ setInterval(() => {
     const stored = localStorage.getItem(CONFIG_KEY);
     if (stored) {
         const diskConfig = JSON.parse(stored);
-        // Verifica mudanças visuais
         if (JSON.stringify(diskConfig) !== JSON.stringify(config)) {
             config = diskConfig;
             applyLayoutAndEffects();
@@ -34,7 +95,7 @@ setInterval(() => {
 function calculateGridDimensions() {
     const W = window.innerWidth;
     const H = window.innerHeight;
-    
+
     if (config.layoutMode === 'target') {
         const target = Math.max(1, config.targetCount || 20);
         const screenRatio = W / H;
@@ -87,13 +148,13 @@ function applyLayoutAndEffects() {
     while (socialWall.children.length < totalSlots) {
         const d = document.createElement('div');
         d.className = 'image-container relative overflow-hidden w-full h-full flex items-center justify-center bg-gray-800/50';
-        d.style.minWidth = '0'; d.style.minHeight = '0';
+        d.style.minWidth = '0';
+        d.style.minHeight = '0';
         socialWall.appendChild(d);
     }
 
     document.querySelectorAll('.image-container img').forEach(img => img.style.opacity = config.opacity);
 
-    // Reinicia o loop apenas se não estiver rodando
     if (config.processing && !queueTimeoutId) {
         loopQueue();
     } else if (!config.processing) {
@@ -103,7 +164,7 @@ function applyLayoutAndEffects() {
 }
 
 function applyBackground() {
-    // Remove background do body para usar camada separada
+    // Camada dedicada de background
     document.body.style.backgroundImage = 'none';
     document.body.style.backgroundColor = '#111827';
 
@@ -116,14 +177,14 @@ function applyBackground() {
         bgLayer.style.left = '0';
         bgLayer.style.width = '100%';
         bgLayer.style.height = '100%';
-        bgLayer.style.zIndex = '-1'; // Atrás de tudo
+        bgLayer.style.zIndex = '-1';
         bgLayer.style.pointerEvents = 'none';
         document.body.prepend(bgLayer);
     }
 
     if (config.backgroundUrl) {
         bgLayer.style.backgroundImage = `url('${config.backgroundUrl}')`;
-        bgLayer.style.backgroundSize = 'cover';
+        bgLayer.style.backgroundSize = '100% 100%';
         bgLayer.style.backgroundPosition = 'center';
 
         const b = config.bgBrightness || 100;
@@ -155,13 +216,15 @@ function renderCurrentState(gridState, imageMap) {
         const idInSlot = gridState[i];
         const currentId = div.getAttribute('data-id');
 
+        // Se o slot já tem a imagem correta (sem mudança), apenas atualiza a opacidade
         if (idInSlot === currentId && idInSlot) {
-            const img = div.querySelector('img');
-            if (img) img.style.opacity = config.opacity;
-            return; 
+            const imgExisting = div.querySelector('img');
+            if (imgExisting) imgExisting.style.opacity = config.opacity;
+            return;
         }
 
-        div.innerHTML = ''; 
+        // Se a imagem mudou ou é um novo slot:
+        div.innerHTML = '';
         div.setAttribute('data-id', idInSlot || '');
 
         if (idInSlot) {
@@ -178,16 +241,22 @@ function renderCurrentState(gridState, imageMap) {
                 if (config.animType === 'pop') transform = 'scale(0.5)';
                 else if (config.animType === 'slide-up') transform = 'translateY(50px)';
                 else if (config.animType === 'rotate') transform = 'rotate(-10deg)';
-                
+
                 img.style.transform = transform;
 
                 div.appendChild(img);
 
+                // Dispara a animação e depois o export
                 requestAnimationFrame(() => {
                     requestAnimationFrame(() => {
-                        img.style.opacity = config.opacity; 
+                        img.style.opacity = config.opacity;
                         img.style.transform = 'scale(1) translateY(0) rotate(0)';
-                    }); 
+
+                        const slotDiv = slots[i];
+                        setTimeout(() => {
+                            triggerSouvenirExport(idInSlot, slotDiv, config, i);
+                        }, 100);
+                    });
                 });
             }
         }
@@ -201,7 +270,7 @@ function processQueueStep() {
     const dims = calculateGridDimensions();
     const totalSlots = dims.cols * dims.rows;
     let gridState = loadGridState();
-    
+
     if (gridState.length !== totalSlots) {
         const newState = new Array(totalSlots).fill(null);
         for (let i = 0; i < Math.min(gridState.length, totalSlots); i++) newState[i] = gridState[i];
@@ -214,16 +283,17 @@ function processQueueStep() {
 
     let hasChanges = false;
 
-    // 1. Limpeza (Isso acontece instantâneo pois é correção de erro)
+    const hiddenImages = getHiddenImages();
     gridState = gridState.map(id => {
-        if (id && !availableIds.has(id)) { hasChanges = true; return null; }
-        return id; 
+        if (id && (!availableIds.has(id) || hiddenImages.includes(id))) {
+            hasChanges = true;
+            return null;
+        }
+        return id;
     });
 
     const usedIds = new Set(gridState.filter(id => id !== null));
-    const hiddenImages = getHiddenImages();
 
-    // 2. ORDENAÇÃO DA FILA: ANTIGAS PRIMEIRO (FIFO)
     const candidates = globalBackendImages
         .filter(img => !usedIds.has(img.id) && !hiddenImages.includes(img.id))
         .sort((a, b) => a.timestamp - b.timestamp);
@@ -231,7 +301,6 @@ function processQueueStep() {
     let emptyIndices = [];
     gridState.forEach((val, i) => { if (val === null) emptyIndices.push(i); });
 
-    // 3. PREENCHE APENAS UM SLOT (Se houver vaga e candidato)
     if (emptyIndices.length > 0 && candidates.length > 0) {
         let targetIdx = emptyIndices[0];
 
@@ -240,7 +309,6 @@ function processQueueStep() {
             targetIdx = emptyIndices[rnd];
         }
 
-        // Pega o primeiro da fila (o mais antigo que ainda não apareceu)
         const img = candidates[0];
         gridState[targetIdx] = img.id;
 
@@ -250,6 +318,7 @@ function processQueueStep() {
     }
 
     if (hasChanges) saveGridState(gridState);
+
     renderCurrentState(gridState, map);
 }
 
@@ -257,13 +326,10 @@ function processQueueStep() {
 function loopQueue() {
     if (!config.processing) return;
 
-    // Executa um passo
     processQueueStep();
 
-    // Limpa timeout anterior por segurança
     if (queueTimeoutId) clearTimeout(queueTimeoutId);
 
-    // Define o próximo passo ESTRITAMENTE pelo intervalo configurado
     const delay = Math.max(500, config.processInterval);
 
     queueTimeoutId = setTimeout(loopQueue, delay);
@@ -271,25 +337,25 @@ function loopQueue() {
 
 async function init() {
     applyLayoutAndEffects();
-    
-    const poll = async () => { 
+
+    const poll = async () => {
         try {
             const url = `${API_BASE_URL}?source=${config.sourceMode || 'local'}`;
             const res = await fetch(url);
             if (res.ok) globalBackendImages = await res.json();
-        } catch (e) { } 
+        } catch (e) { }
     };
 
     await poll();
-    setInterval(poll, 3000); // Apenas atualiza os dados globais
+    setInterval(poll, 3000);
 
-    loopQueue(); // Inicia o relógio visual
+    loopQueue();
 
-    // Efeitos
     setInterval(() => {
         if (!config.processing) return;
         if (config.heroEnabled && (Date.now() - lastHeroTime > config.heroInterval * 1000)) {
-            const slots = Array.from(document.getElementById('social-wall').children).filter(d => d.querySelector('img'));
+            const socialWall = document.getElementById('social-wall');
+            const slots = Array.from(socialWall.children).filter(d => d.querySelector('img'));
             if (slots.length) {
                 const slot = slots[Math.floor(Math.random() * slots.length)];
                 slot.classList.add('hero-active');
@@ -299,6 +365,6 @@ async function init() {
         }
     }, 1000);
 
-    window.addEventListener('resize', () => { updateGridLayout(); });
+    window.addEventListener('resize', () => { applyLayoutAndEffects(); });
 }
 document.addEventListener('DOMContentLoaded', init);

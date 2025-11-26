@@ -1,11 +1,11 @@
-export const CONFIG_KEY = 'socialWallConfig_v25';
-export const GRID_STATE_KEY = 'socialWallGridState_v25';
-export const HIDDEN_IMAGES_KEY = 'socialWallHidden_v25';
+export const CONFIG_KEY = 'socialWallConfig_v27';
+export const GRID_STATE_KEY = 'socialWallGridState_v27';
+export const HIDDEN_IMAGES_KEY = 'socialWallHidden_v27';
 
-export const API_BASE_URL = 'http://localhost:3000/api/images'; 
+export const API_BASE_URL = 'http://localhost:3000/api/images';
 export const UPLOAD_URL = 'http://localhost:3000/api/upload';
 
-export const syncChannel = new BroadcastChannel('social_wall_sync_channel_v25');
+export const syncChannel = new BroadcastChannel('social_wall_sync_channel_v27');
 
 export const defaultConfig = {
     // Layout
@@ -16,17 +16,16 @@ export const defaultConfig = {
     gap: 10,
 
     // Aparência
-    opacity: 1, 
-    backgroundUrl: '', 
+    opacity: 1,
+    backgroundUrl: '',
     bgBrightness: 100, // %
-    bgContrast: 100,   // %
-    bgSaturate: 100,   // %
-    bgBlur: 0,         // px
+    bgContrast: 100,    // %
+    bgSaturate: 100,    // %
+    bgBlur: 0,          // px
 
     // Branding
     logoUrl: '', logoPosition: 'top-right',
-    tickerText: 'Bem-vindos ao evento! Use a hashtag #EventoTop',
-    tickerEnabled: false,
+    tickerText: '', tickerEnabled: false,
 
     // Comportamento
     randomPosition: true,
@@ -42,6 +41,10 @@ export const defaultConfig = {
     // Fonte
     sourceMode: 'local',
     dropboxToken: '', dropboxFolder: '/',
+
+    exportEnabled: false, 
+    exportWidth: 300,
+    exportHeight: 300,
 };
 
 export function loadConfig() {
@@ -65,6 +68,12 @@ export function addHiddenImage(id) {
         localStorage.setItem(HIDDEN_IMAGES_KEY, JSON.stringify(list));
         try { syncChannel.postMessage({ type: 'HIDDEN_UPDATE' }); } catch (e) { }
     }
+}
+export function removeHiddenImage(id) {
+    let list = getHiddenImages();
+    list = list.filter(x => x !== id);
+    localStorage.setItem(HIDDEN_IMAGES_KEY, JSON.stringify(list));
+    try { syncChannel.postMessage({ type: 'HIDDEN_UPDATE' }); } catch (e) { }
 }
 export function clearHiddenImages() {
     localStorage.removeItem(HIDDEN_IMAGES_KEY);

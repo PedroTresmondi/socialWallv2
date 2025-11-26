@@ -31,6 +31,13 @@ const getEls = () => ({
     statusLog: document.getElementById('status-log'), gallery: document.getElementById('admin-gallery-container'),
     clearHiddenBtn: document.getElementById('clear-hidden-btn'), refreshBtn: document.getElementById('refresh-gallery'),
 
+    // **NOVO: Export Souvenir**
+    exportCheck: document.getElementById('export-enabled'),
+    exportW: document.getElementById('export-width'),
+    exportH: document.getElementById('export-height'),
+    exportWithBgCheck: document.getElementById('export-with-bg'),
+    // FIM NOVO
+
     // ABAS
     tabQueue: document.getElementById('tab-queue'),
     tabWall: document.getElementById('tab-wall'),
@@ -137,6 +144,13 @@ function updateUI() {
     if (els.dropboxToken) els.dropboxToken.value = config.dropboxToken || '';
     if (els.dropboxFolder) els.dropboxFolder.value = config.dropboxFolder || '/';
 
+    // **NOVO: Export Souvenir**
+    if (els.exportCheck) els.exportCheck.checked = config.exportEnabled;
+    if (els.exportW) els.exportW.value = config.exportWidth;
+    if (els.exportH) els.exportH.value = config.exportHeight;
+    if (els.exportWithBgCheck) els.exportWithBgCheck.checked = (config.exportWithBackground ?? true);
+    // FIM NOVO
+
     if (els.groupTarget) {
         els.groupTarget.classList.add('hidden'); els.groupAuto.classList.add('hidden'); els.groupManual.classList.add('hidden');
         if (config.layoutMode === 'target') els.groupTarget.classList.remove('hidden');
@@ -182,6 +196,11 @@ function setupListeners() {
     numBind(els.bgSaturate, 'bgSaturate'); numBind(els.bgBlur, 'bgBlur');
     numBind(els.heroInterval, 'heroInterval'); numBind(els.idleTimeout, 'idleTimeout');
 
+    // **NOVO: Listeners de Exportação**
+    numBind(els.exportW, 'exportWidth');
+    numBind(els.exportH, 'exportHeight');
+    // FIM NOVO
+
     if (els.opacityIn) els.opacityIn.addEventListener('input', e => change('opacity', parseFloat(e.target.value) / 100));
     if (els.animType) els.animType.addEventListener('change', e => change('animType', e.target.value));
     if (els.animDur) els.animDur.addEventListener('input', e => change('animDuration', parseInt(e.target.value)));
@@ -190,6 +209,11 @@ function setupListeners() {
     const chkBind = (el, key) => el?.addEventListener('change', e => change(key, e.target.checked, true));
     chkBind(els.randCheck, 'randomPosition'); chkBind(els.persistCheck, 'persistGrid'); chkBind(els.removalCheck, 'removalMode');
     chkBind(els.heroCheck, 'heroEnabled'); chkBind(els.idleCheck, 'idleEnabled'); chkBind(els.tickerEnabled, 'tickerEnabled');
+
+    // **NOVO: Checkbox de Exportação**
+    chkBind(els.exportCheck, 'exportEnabled');
+    chkBind(els.exportWithBgCheck, 'exportWithBackground');
+    // FIM NOVO
 
     if (els.logoUrl) els.logoUrl.addEventListener('change', e => change('logoUrl', e.target.value));
     if (els.logoPosition) els.logoPosition.addEventListener('change', e => change('logoPosition', e.target.value));
