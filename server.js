@@ -15,6 +15,7 @@ const PROCESSED_IMAGES_DIR = path.join(__dirname, 'processed-images');
 const CAMERA_INPUT_DIR = path.join(__dirname, 'camera-input');
 const BACKGROUNDS_DIR = path.join(__dirname, 'backgrounds');
 const EXPORT_DIR = path.join(__dirname, 'exports');
+const STATE_FILE = path.join(__dirname, 'wall-state.json'); // ⬅ arquivo de backup
 
 // Garante que as pastas existem
 [PROCESSED_IMAGES_DIR, CAMERA_INPUT_DIR, BACKGROUNDS_DIR, EXPORT_DIR].forEach(dir => {
@@ -64,6 +65,7 @@ function logToClients(msg, type = 'log') {
 }
 
 // --- OVERLAY DO NÚMERO DO GRID (SVG -> Buffer p/ sharp) ---
+// versão discreta: só texto, sem fundo
 function createGridNumberOverlay(gridNumber) {
     const safeNumber = String(gridNumber);
 
@@ -75,7 +77,7 @@ function createGridNumberOverlay(gridNumber) {
                 }
             </style>
             <text x="20" y="40"
-                  font-size="20"
+                  font-size="30"
                   fill="#ffffff"
                   fill-opacity="0.9"
                   stroke="#000000"
@@ -244,6 +246,49 @@ const storageBg = multer.diskStorage({
     }
 });
 const uploadBg = multer({ storage: storageBg });
+
+// --- BACKUP DE ESTADO (config + grid + bloqueados) ---
+// GET: devolve o conteúdo do arquivo (ou defaults)
+app.get('/api/state', (req, res) => {
+    try {
+        if (!fs.existsSync(STATE_FILE)) {
+            return res.json({
+                config: null,
+                gridState: [],
+                hiddenImages: []
+            });
+        }
+        const raw = fs.readFileSync(STATE_FILE, 'utf8');
+        const parsed = JSON.parse(raw);
+        res.json(parsed);
+    } catch (e) {
+        logToClients(`Erro ao ler state: ${e.message}`, 'error');
+        res.json({
+            config: null,
+            gridState: [],
+            hiddenImages: []
+        });
+    }
+});
+
+// POST: salva snapshot vindo do front
+app.post('/api/state', (req, res) => {
+    try {
+        const body = req.body || {};
+        const snapshot = {
+            config: body.config || null,
+            gridState: Array.isArray(body.gridState) ? body.gridState : [],
+            hiddenImages: Array.isArray(body.hiddenImages) ? body.hiddenImages : []
+        };
+
+        fs.writeFileSync(STATE_FILE, JSON.stringify(snapshot, null, 2), 'utf8');
+        logToClients('💾 Estado do mural salvo em wall-state.json', 'system');
+        res.json({ success: true });
+    } catch (e) {
+        logToClients(`Erro ao salvar state: ${e.message}`, 'error');
+        res.status(500).json({ success: false });
+    }
+});
 
 // --- ROTAS API BÁSICAS ---
 

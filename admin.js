@@ -1,8 +1,20 @@
 import './style.css';
-import { saveConfig, loadConfig, API_BASE_URL, GRID_STATE_KEY, getHiddenImages, clearHiddenImages, CONFIG_KEY, HIDDEN_IMAGES_KEY, addHiddenImage, syncChannel } from './shared.js';
+import {
+    saveConfig,
+    loadConfig,
+    API_BASE_URL,
+    GRID_STATE_KEY,
+    getHiddenImages,
+    clearHiddenImages,
+    CONFIG_KEY,
+    HIDDEN_IMAGES_KEY,
+    addHiddenImage,
+    syncChannel,
+    restoreStateFromServer
+} from './shared.js';
 
 let config = loadConfig();
-// Garante que o novo campo existe na configuração (Se você não tem o shared.js aqui, adicione "config.showGridNumber = config.showGridNumber ?? false;" após loadConfig())
+// garante que o novo campo existe
 config.showGridNumber = config.showGridNumber ?? false;
 
 let currentFilter = 'queue'; // Estado inicial da aba (queue, wall, removed)
@@ -264,7 +276,6 @@ function initStatusMonitor() {
     const el = document.getElementById('status-log');
     if (!el) return;
 
-    // A rota correta do Server-Sent Events é /events
     const es = new EventSource('http://localhost:3000/events');
 
     es.onopen = () => console.log("SSE: Conexão de status estabelecida.");
@@ -347,18 +358,19 @@ function renderGallery(images) {
         const div = document.createElement('div');
         div.className = `aspect-square bg-slate-800 rounded-lg relative overflow-hidden group border transition-all duration-200 ${border}`;
         div.innerHTML = `
-      ${badge}
-        ${gridNumberDisplay}       <img src="${img.url}" class="w-full h-full object-cover">
-      <div class="absolute inset-0 bg-black/80 hidden group-hover:flex flex-col items-center justify-center gap-2 transition-all backdrop-blur-sm">
-        ${isOnWall
+      ${badge}
+      ${gridNumberDisplay}
+      <img src="${img.url}" class="w-full h-full object-cover">
+      <div class="absolute inset-0 bg-black/80 hidden group-hover:flex flex-col items-center justify-center gap-2 transition-all backdrop-blur-sm">
+        ${isOnWall
                 ? `<button onclick="actRem('${img.id}')" class="bg-red-600 hover:bg-red-500 text-white text-[10px] px-3 py-1.5 rounded font-bold w-24">Remover</button>`
                 : isHidden
                     ? `<button onclick="actRes('${img.id}')" class="bg-slate-500 hover:bg-slate-400 text-white text-[10px] px-3 py-1.5 rounded font-bold w-24">Restaurar</button>`
                     : `<button onclick="actBlk('${img.id}')" class="bg-red-900 hover:bg-red-800 text-white text-[10px] px-3 py-1.5 rounded font-bold w-24">Bloquear</button>`
             }
-        <span class="text-[9px] text-slate-400 font-mono truncate max-w-[90%]">${img.id.substring(0, 15)}...</span>
-      </div>
-    `;
+        <span class="text-[9px] text-slate-400 font-mono truncate max-w-[90%]">${img.id.substring(0, 15)}...</span>
+      </div>
+    `;
         els.gallery.appendChild(div);
     });
 }
@@ -393,8 +405,16 @@ window.actRes = (id) => {
     showToast("Restaurado para Fila");
 };
 
-initStatusMonitor();
-updateUI();
-setupListeners();
-setInterval(fetchGallery, 3000);
-fetchGallery();
+// --- BOOT ---
+async function bootAdmin() {
+    await restoreStateFromServer();
+    config = loadConfig();
+
+    initStatusMonitor();
+    updateUI();
+    setupListeners();
+    setInterval(fetchGallery, 3000);
+    fetchGallery();
+}
+
+bootAdmin();

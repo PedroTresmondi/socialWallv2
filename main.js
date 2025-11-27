@@ -1,11 +1,18 @@
 import './style.css';
-import { CONFIG_KEY, GRID_STATE_KEY, API_BASE_URL, loadConfig, saveConfig, syncChannel, getHiddenImages } from './shared.js';
+import {
+    CONFIG_KEY,
+    GRID_STATE_KEY,
+    API_BASE_URL,
+    loadConfig,
+    saveConfig,
+    syncChannel,
+    getHiddenImages,
+    scheduleStateSync,
+    restoreStateFromServer
+} from './shared.js';
 
 // --- ESTADO GLOBAL ---
 let config = loadConfig();
-// garante que a chave exista sempre
-config.showGridNumber = config.showGridNumber ?? false;
-
 let globalBackendImages = [];
 let lastHeroTime = Date.now();
 let lastActivityTime = Date.now();
@@ -75,9 +82,7 @@ function triggerSouvenirExport(photoId, slotDiv, currentConfig, slotIndex) {
     if (Number.isNaN(opacity) || opacity <= 0 || opacity > 1) opacity = 1;
 
     const slotRect = slotDiv.getBoundingClientRect();
-
-    // 🔢 Número do grid: só manda pro servidor SE o toggle estiver ativado
-    const gridNumber = currentConfig.showGridNumber ? (slotIndex + 1) : null;
+    const gridNumber = slotIndex + 1;
 
     console.log('[TRIGGER EXPORT] (main.js) Foto:', photoId,
         'slotIndex:', slotIndex,
@@ -99,7 +104,7 @@ function triggerSouvenirExport(photoId, slotDiv, currentConfig, slotIndex) {
             h: currentConfig.exportHeight || 1080
         },
         opacity,
-        gridNumber // 🔢 manda pro servidor desenhar no JPEG (ou null se toggle desligado)
+        gridNumber    // 🔢 manda pro servidor desenhar no JPEG
     };
 
     fetch('http://localhost:3000/api/export-collage', {
@@ -123,12 +128,13 @@ function triggerSouvenirExport(photoId, slotDiv, currentConfig, slotIndex) {
         });
 }
 
+
+
 // --- COMUNICAÇÃO ---
 if (syncChannel) {
     syncChannel.onmessage = (event) => {
         if (event.data && event.data.type === 'CONFIG_UPDATE') {
             config = event.data.data;
-            config.showGridNumber = config.showGridNumber ?? false;
             requestAnimationFrame(() => {
                 applyLayoutAndEffects();
                 updateLocalMenuUI();
@@ -146,7 +152,6 @@ setInterval(() => {
         const diskConfig = JSON.parse(stored);
         if (JSON.stringify(diskConfig) !== JSON.stringify(config)) {
             config = diskConfig;
-            config.showGridNumber = config.showGridNumber ?? false;
             applyLayoutAndEffects();
             updateLocalMenuUI();
         }
@@ -189,6 +194,7 @@ function applyLayoutAndEffects() {
         config.rows = dims.rows;
         if (config.layoutMode !== 'manual') {
             localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
+            scheduleStateSync();
         }
     }
 
@@ -329,7 +335,10 @@ function loadGridState() {
     try { return JSON.parse(localStorage.getItem(GRID_STATE_KEY) || '[]'); } catch (e) { return []; }
 }
 function saveGridState(state) {
-    if (config.persistGrid) localStorage.setItem(GRID_STATE_KEY, JSON.stringify(state));
+    if (config.persistGrid) {
+        localStorage.setItem(GRID_STATE_KEY, JSON.stringify(state));
+        scheduleStateSync();
+    }
 }
 
 function updateSlotNumberOverlay(div, slotIndex, hasImage) {
@@ -419,6 +428,7 @@ function renderCurrentState(gridState, imageMap) {
     });
 }
 
+
 // --- FILA (UMA POR VEZ) ---
 function processQueueStep() {
     if (globalBackendImages.length === 0) return;
@@ -498,6 +508,10 @@ function loopQueue() {
 }
 
 async function init() {
+    // primeiro tenta restaurar do arquivo (se localStorage estiver vazio)
+    await restoreStateFromServer();
+    config = loadConfig();
+
     applyLayoutAndEffects();
     setupLocalListeners();
     updateLocalMenuUI();
