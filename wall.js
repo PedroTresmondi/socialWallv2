@@ -1,11 +1,48 @@
 import './style.css';
 import { CONFIG_KEY, GRID_STATE_KEY, API_BASE_URL, loadConfig, saveConfig, syncChannel, getHiddenImages } from './shared.js';
 
+// --- ESTADO GLOBAL ---
 let config = loadConfig();
+// garante que a chave exista sempre
+config.showGridNumber = config.showGridNumber ?? false;
+
 let globalBackendImages = [];
 let lastHeroTime = Date.now();
 let lastActivityTime = Date.now();
 let queueTimeoutId = null;
+let isUpdatingUI = false;
+
+// --- ELEMENTOS UI ---
+const getEls = () => ({
+    autoCheck: document.getElementById('auto-grid'),
+    photoW: document.getElementById('photo-width'),
+    photoH: document.getElementById('photo-height'),
+    gridCols: document.getElementById('grid-cols'),
+    gridRows: document.getElementById('grid-rows'),
+    gapIn: document.getElementById('grid-gap'),
+    opacityIn: document.getElementById('image-opacity'),
+    bgUrl: document.getElementById('background-url'),
+    animType: document.getElementById('anim-type'),
+    animDur: document.getElementById('anim-duration'),
+    randCheck: document.getElementById('random-position'),
+    persistCheck: document.getElementById('persist-state'),
+    heroCheck: document.getElementById('hero-enabled'),
+    idleCheck: document.getElementById('idle-enabled'),
+    removalCheck: document.getElementById('removal-mode'),
+    toggleBtn: document.getElementById('toggle-processing'),
+    processInterval: document.getElementById('process-interval'),
+    panel: document.getElementById('config-panel'),
+    openBtn: document.getElementById('open-config'),
+    closeBtn: document.getElementById('close-config'),
+    closeX: document.getElementById('close-config-x'),
+    manualDiv: document.getElementById('manual-settings'),
+    autoDiv: document.getElementById('auto-settings'),
+    statBackend: document.getElementById('total-backend-images'),
+    statQueue: document.getElementById('queue-count'),
+    statScreen: document.getElementById('total-on-screen'),
+});
+
+const socialWall = document.getElementById('social-wall');
 
 // --- FUNÇÃO DE EXPORTAÇÃO (SOUVENIR) ---
 
@@ -21,6 +58,12 @@ let queueTimeoutId = null;
 function triggerSouvenirExport(photoId, slotDiv, currentConfig, slotIndex) {
     if (!currentConfig.exportEnabled) return;
 
+    // Se exportWithBackground estiver desligado, manda backgroundUrl nulo
+    const useBackground = currentConfig.exportWithBackground !== false;
+    if (!useBackground || !currentConfig.backgroundUrl) {
+        console.warn('[Exportador Wall] (main.js) Exportando sem background (apenas foto).');
+    }
+
     const cols = currentConfig.cols || 1;
     const rows = currentConfig.rows || 1;
 
@@ -29,23 +72,34 @@ function triggerSouvenirExport(photoId, slotDiv, currentConfig, slotIndex) {
 
     let opacity = currentConfig.opacity;
     if (typeof opacity === 'string') opacity = parseFloat(opacity);
-    if (Number.isNaN(opacity) || opacity < 0 || opacity > 1) opacity = 1;
+    if (Number.isNaN(opacity) || opacity <= 0 || opacity > 1) opacity = 1;
+
+    const slotRect = slotDiv.getBoundingClientRect();
+
+    // 🔢 Número do grid: só manda pro servidor SE o toggle estiver ativado
+    const gridNumber = currentConfig.showGridNumber ? (slotIndex + 1) : null;
+
+    console.log('[TRIGGER EXPORT] (main.js) Foto:', photoId,
+        'slotIndex:', slotIndex,
+        'gridNumber:', gridNumber,
+        'tile(row,col)=', row, col,
+        'rect=', {
+        x: Math.round(slotRect.left),
+        y: Math.round(slotRect.top),
+        w: Math.round(slotRect.width),
+        h: Math.round(slotRect.height)
+    });
 
     const exportData = {
         photoId,
-        // 👇 Toggle: se exportWithBackground === false, não manda background
-        backgroundUrl: currentConfig.exportWithBackground === false ? null : currentConfig.backgroundUrl,
-        tile: {
-            row,
-            col,
-            cols,
-            rows
-        },
+        backgroundUrl: useBackground ? currentConfig.backgroundUrl : null,
+        tile: { row, col, cols, rows },
         exportSize: {
             w: currentConfig.exportWidth || 1080,
             h: currentConfig.exportHeight || 1080
         },
-        opacity
+        opacity,
+        gridNumber // 🔢 manda pro servidor desenhar no JPEG (ou null se toggle desligado)
     };
 
     fetch('http://localhost:3000/api/export-collage', {
@@ -58,24 +112,30 @@ function triggerSouvenirExport(photoId, slotDiv, currentConfig, slotIndex) {
             return res.json();
         })
         .then(data => {
-            if (data && data.url) {
-                console.log('[Exportador Wall] Souvenir OK:', data.url, 'backgroundUsed:', data.backgroundUsed);
+            if (data.url) {
+                console.log(`[Exportador Wall] (main.js) Sucesso! Souvenir em: ${data.url} (backgroundUsed=${data.backgroundUsed})`);
             } else {
-                console.warn('[Exportador Wall] Resposta inesperada da API de export:', data);
+                console.warn('[Exportador Wall] (main.js) Resposta sem URL:', data);
             }
         })
         .catch(err => {
-            console.error('[Exportador Wall] Erro ao exportar:', err);
+            console.error('[Exportador Wall] (main.js) Erro ao chamar /api/export-collage:', err);
         });
 }
-
 
 // --- COMUNICAÇÃO ---
 if (syncChannel) {
     syncChannel.onmessage = (event) => {
         if (event.data && event.data.type === 'CONFIG_UPDATE') {
             config = event.data.data;
-            requestAnimationFrame(() => applyLayoutAndEffects());
+            config.showGridNumber = config.showGridNumber ?? false;
+            requestAnimationFrame(() => {
+                applyLayoutAndEffects();
+                updateLocalMenuUI();
+            });
+        }
+        if (event.data && event.data.type === 'HIDDEN_UPDATE') {
+            setTimeout(processQueueStep, 50);
         }
     };
 }
@@ -86,7 +146,9 @@ setInterval(() => {
         const diskConfig = JSON.parse(stored);
         if (JSON.stringify(diskConfig) !== JSON.stringify(config)) {
             config = diskConfig;
+            config.showGridNumber = config.showGridNumber ?? false;
             applyLayoutAndEffects();
+            updateLocalMenuUI();
         }
     }
 }, 1000);
@@ -117,9 +179,7 @@ function calculateGridDimensions() {
 }
 
 function applyLayoutAndEffects() {
-    const socialWall = document.getElementById('social-wall');
     if (!socialWall) return;
-
     applyBackground();
 
     const dims = calculateGridDimensions();
@@ -155,48 +215,112 @@ function applyLayoutAndEffects() {
 
     document.querySelectorAll('.image-container img').forEach(img => img.style.opacity = config.opacity);
 
-    if (config.processing && !queueTimeoutId) {
-        loopQueue();
-    } else if (!config.processing) {
+    if (config.processing) {
+        if (!queueTimeoutId) loopQueue();
+    } else {
         clearTimeout(queueTimeoutId);
         queueTimeoutId = null;
     }
 }
 
 function applyBackground() {
-    // Camada dedicada de background
-    document.body.style.backgroundImage = 'none';
-    document.body.style.backgroundColor = '#111827';
-
-    let bgLayer = document.getElementById('wall-background-layer');
-    if (!bgLayer) {
-        bgLayer = document.createElement('div');
-        bgLayer.id = 'wall-background-layer';
-        bgLayer.style.position = 'fixed';
-        bgLayer.style.top = '0';
-        bgLayer.style.left = '0';
-        bgLayer.style.width = '100%';
-        bgLayer.style.height = '100%';
-        bgLayer.style.zIndex = '-1';
-        bgLayer.style.pointerEvents = 'none';
-        document.body.prepend(bgLayer);
-    }
-
     if (config.backgroundUrl) {
-        bgLayer.style.backgroundImage = `url('${config.backgroundUrl}')`;
-        bgLayer.style.backgroundSize = '100% 100%';
-        bgLayer.style.backgroundPosition = 'center';
-
-        const b = config.bgBrightness || 100;
-        const c = config.bgContrast || 100;
-        const s = config.bgSaturate || 100;
-        const bl = config.bgBlur || 0;
-
-        bgLayer.style.filter = `brightness(${b}%) contrast(${c}%) saturate(${s}%) blur(${bl}px)`;
+        document.body.style.backgroundImage = `url('${config.backgroundUrl}')`;
+        document.body.style.backgroundSize = '100% 100%';
+        document.body.style.backgroundPosition = 'center';
     } else {
-        bgLayer.style.backgroundImage = 'none';
-        bgLayer.style.filter = 'none';
+        document.body.style.backgroundImage = 'none';
+        document.body.style.backgroundColor = '#111827';
     }
+}
+
+// --- MENU LATERAL ---
+function setupLocalListeners() {
+    const els = getEls();
+    const toggleMenu = () => els.panel?.classList.toggle('open');
+    if (els.openBtn) els.openBtn.addEventListener('click', toggleMenu);
+    if (els.closeBtn) els.closeBtn.addEventListener('click', toggleMenu);
+    if (els.closeX) els.closeX.addEventListener('click', toggleMenu);
+    window.addEventListener('keydown', (e) => { if (e.key.toLowerCase() === 'c' && e.target.tagName !== 'INPUT') toggleMenu(); });
+
+    const bind = (el, key, parser = v => v) => {
+        if (!el) return;
+        el.addEventListener('input', (e) => {
+            if (isUpdatingUI) return;
+            const val = parser(e.target.type === 'checkbox' ? e.target.checked : e.target.value);
+            config[key] = val;
+            saveConfig(config);
+            if (['cols', 'rows', 'autoGrid', 'photoWidth', 'photoHeight', 'gap'].includes(key)) applyLayoutAndEffects();
+            if (key === 'opacity') document.querySelectorAll('img').forEach(i => i.style.opacity = val);
+            if (key === 'processInterval') {
+                const span = document.getElementById('process-interval-val');
+                if (span) span.textContent = (val / 1000) + 's';
+            }
+        });
+    };
+
+    bind(els.autoCheck, 'autoGrid');
+    bind(els.photoW, 'photoWidth', parseInt);
+    bind(els.photoH, 'photoHeight', parseInt);
+    bind(els.gridCols, 'cols', parseInt);
+    bind(els.gridRows, 'rows', parseInt);
+    bind(els.gapIn, 'gap', parseInt);
+    bind(els.opacityIn, 'opacity', v => parseFloat(v) / 100);
+    bind(els.animType, 'animType');
+    bind(els.animDur, 'animDuration', parseInt);
+    bind(els.randCheck, 'randomPosition');
+    bind(els.persistCheck, 'persistGrid');
+    bind(els.heroCheck, 'heroEnabled');
+    bind(els.idleCheck, 'idleEnabled');
+    bind(els.removalCheck, 'removalMode');
+    bind(els.processInterval, 'processInterval', v => parseFloat(v) * 1000);
+
+    if (els.toggleBtn) {
+        els.toggleBtn.addEventListener('click', () => {
+            config.processing = !config.processing;
+            saveConfig(config);
+            updateLocalMenuUI();
+            if (config.processing) loopQueue();
+        });
+    }
+
+    if (socialWall) {
+        socialWall.addEventListener('click', (e) => {
+            if (!config.removalMode) return;
+            const container = e.target.closest('.image-container');
+            if (!container) return;
+            const idx = Array.from(socialWall.children).indexOf(container);
+            let gs = loadGridState();
+            gs[idx] = null;
+            saveGridState(gs);
+            renderCurrentState(gs, new Map(globalBackendImages.map(i => [i.id, i])));
+        });
+    }
+}
+
+function updateLocalMenuUI() {
+    isUpdatingUI = true;
+    const els = getEls();
+    if (els.gridCols) els.gridCols.value = config.cols;
+    if (els.gridRows) els.gridRows.value = config.rows;
+    if (els.autoCheck) els.autoCheck.checked = config.autoGrid;
+    if (els.photoW) els.photoW.value = config.photoWidth;
+    if (els.photoH) els.photoH.value = config.photoHeight;
+    if (els.gapIn) els.gapIn.value = config.gap;
+    if (els.opacityIn) els.opacityIn.value = (config.opacity || 1) * 100;
+
+    if (els.toggleBtn) {
+        const icon = document.getElementById('toggle-icon');
+        const text = document.getElementById('toggle-text');
+        if (config.processing) {
+            if (icon) icon.textContent = "⏸️"; if (text) text.textContent = "Pausar";
+            els.toggleBtn.className = "w-full p-3 bg-red-600 hover:bg-red-700 rounded-lg font-bold transition mb-4 flex items-center justify-center gap-2";
+        } else {
+            if (icon) icon.textContent = "▶️"; if (text) text.textContent = "Começar";
+            els.toggleBtn.className = "w-full p-3 bg-green-600 hover:bg-green-500 rounded-lg font-bold transition mb-4 flex items-center justify-center gap-2";
+        }
+    }
+    isUpdatingUI = false;
 }
 
 // --- RENDER ---
@@ -208,62 +332,94 @@ function saveGridState(state) {
     if (config.persistGrid) localStorage.setItem(GRID_STATE_KEY, JSON.stringify(state));
 }
 
+function updateSlotNumberOverlay(div, slotIndex, hasImage) {
+    const existing = div.querySelector('.grid-slot-number');
+
+    // Se não tiver imagem ou o toggle estiver desligado, remove o label
+    if (!hasImage || !config.showGridNumber) {
+        if (existing) existing.remove();
+        return;
+    }
+
+    const gridNumber = slotIndex + 1;
+    const label = existing || document.createElement('div');
+
+    label.className =
+        'grid-slot-number absolute top-1 left-1 text-white text-[11px] font-semibold ' +
+        'drop-shadow-md pointer-events-none select-none';
+
+    label.textContent = `#${gridNumber}`;
+
+    if (!existing) {
+        div.appendChild(label);
+    }
+}
+
+
 function renderCurrentState(gridState, imageMap) {
-    const socialWall = document.getElementById('social-wall');
     const slots = Array.from(socialWall.children);
 
     slots.forEach((div, i) => {
-        const idInSlot = gridState[i];
-        const currentId = div.getAttribute('data-id');
+        const idInSlot = gridState[i] || null;
+        const currentId = div.getAttribute('data-id') || null;
 
-        // Se o slot já tem a imagem correta (sem mudança), apenas atualiza a opacidade
-        if (idInSlot === currentId && idInSlot) {
-            const imgExisting = div.querySelector('img');
-            if (imgExisting) imgExisting.style.opacity = config.opacity;
+        // Slot vazio
+        if (!idInSlot) {
+            div.innerHTML = '';
+            div.setAttribute('data-id', '');
+            updateSlotNumberOverlay(div, i, false);
             return;
         }
 
-        // Se a imagem mudou ou é um novo slot:
-        div.innerHTML = '';
-        div.setAttribute('data-id', idInSlot || '');
-
-        if (idInSlot) {
-            const data = imageMap.get(idInSlot);
-            if (data) {
-                const img = document.createElement('img');
-                img.src = data.url;
-                img.className = 'w-full h-full object-cover block shadow-lg';
-
-                img.style.opacity = '0';
-                img.style.transition = `all ${config.animDuration}ms ease-out`;
-
-                let transform = 'scale(0.95)';
-                if (config.animType === 'pop') transform = 'scale(0.5)';
-                else if (config.animType === 'slide-up') transform = 'translateY(50px)';
-                else if (config.animType === 'rotate') transform = 'rotate(-10deg)';
-
-                img.style.transform = transform;
-
-                div.appendChild(img);
-
-                // Dispara a animação e depois o export
-                requestAnimationFrame(() => {
-                    requestAnimationFrame(() => {
-                        img.style.opacity = config.opacity;
-                        img.style.transform = 'scale(1) translateY(0) rotate(0)';
-
-                        const slotDiv = slots[i];
-                        setTimeout(() => {
-                            triggerSouvenirExport(idInSlot, slotDiv, config, i);
-                        }, 100);
-                    });
-                });
-            }
+        // Mesma imagem no mesmo slot: só atualiza visual + label
+        if (idInSlot === currentId) {
+            const imgExisting = div.querySelector('img');
+            if (imgExisting) imgExisting.style.opacity = config.opacity;
+            updateSlotNumberOverlay(div, i, true);
+            return;
         }
+
+        // Nova imagem nesse slot
+        div.innerHTML = '';
+        div.setAttribute('data-id', idInSlot);
+
+        const data = imageMap.get(idInSlot);
+        if (!data) {
+            updateSlotNumberOverlay(div, i, false);
+            return;
+        }
+
+        const img = document.createElement('img');
+        img.src = data.url;
+        img.className = 'w-full h-full object-cover block shadow-lg';
+        img.style.opacity = '0';
+        img.style.transition = `all ${config.animDuration}ms ease-out`;
+
+        let transform = 'scale(0.95)';
+        if (config.animType === 'pop') transform = 'scale(0.5)';
+        else if (config.animType === 'slide-up') transform = 'translateY(50px)';
+        else if (config.animType === 'rotate') transform = 'rotate(-10deg)';
+        img.style.transform = transform;
+
+        div.appendChild(img);
+        updateSlotNumberOverlay(div, i, true);
+
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                img.style.opacity = config.opacity;
+                img.style.transform = 'scale(1) translateY(0) rotate(0)';
+
+                // dispara export depois que a animação terminou
+                const slotDiv = slots[i];
+                setTimeout(() => {
+                    triggerSouvenirExport(idInSlot, slotDiv, config, i);
+                }, 100);
+            });
+        });
     });
 }
 
-// --- FILA RIGOROSA ---
+// --- FILA (UMA POR VEZ) ---
 function processQueueStep() {
     if (globalBackendImages.length === 0) return;
 
@@ -280,10 +436,10 @@ function processQueueStep() {
     const map = new Map();
     globalBackendImages.forEach(img => map.set(img.id, img));
     const availableIds = new Set(globalBackendImages.map(img => img.id));
+    const hiddenImages = getHiddenImages();
 
     let hasChanges = false;
 
-    const hiddenImages = getHiddenImages();
     gridState = gridState.map(id => {
         if (id && (!availableIds.has(id) || hiddenImages.includes(id))) {
             hasChanges = true;
@@ -296,7 +452,7 @@ function processQueueStep() {
 
     const candidates = globalBackendImages
         .filter(img => !usedIds.has(img.id) && !hiddenImages.includes(img.id))
-        .sort((a, b) => a.timestamp - b.timestamp);
+        .sort((a, b) => b.timestamp - a.timestamp);
 
     let emptyIndices = [];
     gridState.forEach((val, i) => { if (val === null) emptyIndices.push(i); });
@@ -318,11 +474,17 @@ function processQueueStep() {
     }
 
     if (hasChanges) saveGridState(gridState);
-
     renderCurrentState(gridState, map);
+
+    const els = getEls();
+    if (els.statBackend) {
+        els.statBackend.textContent = globalBackendImages.length;
+        els.statScreen.textContent = gridState.filter(id => id).length;
+        els.statQueue.textContent = candidates.length;
+    }
 }
 
-// --- LOOP METRÔNOMO ---
+// --- LOOP CONTROLADO ---
 function loopQueue() {
     if (!config.processing) return;
 
@@ -337,6 +499,8 @@ function loopQueue() {
 
 async function init() {
     applyLayoutAndEffects();
+    setupLocalListeners();
+    updateLocalMenuUI();
 
     const poll = async () => {
         try {
@@ -345,7 +509,6 @@ async function init() {
             if (res.ok) globalBackendImages = await res.json();
         } catch (e) { }
     };
-
     await poll();
     setInterval(poll, 3000);
 
@@ -354,7 +517,6 @@ async function init() {
     setInterval(() => {
         if (!config.processing) return;
         if (config.heroEnabled && (Date.now() - lastHeroTime > config.heroInterval * 1000)) {
-            const socialWall = document.getElementById('social-wall');
             const slots = Array.from(socialWall.children).filter(d => d.querySelector('img'));
             if (slots.length) {
                 const slot = slots[Math.floor(Math.random() * slots.length)];

@@ -3,6 +3,9 @@ import { CONFIG_KEY, GRID_STATE_KEY, API_BASE_URL, loadConfig, saveConfig, syncC
 
 // --- ESTADO GLOBAL ---
 let config = loadConfig();
+// garante que a chave exista sempre
+config.showGridNumber = config.showGridNumber ?? false;
+
 let globalBackendImages = [];
 let lastHeroTime = Date.now();
 let lastActivityTime = Date.now();
@@ -54,8 +57,11 @@ const socialWall = document.getElementById('social-wall');
  */
 function triggerSouvenirExport(photoId, slotDiv, currentConfig, slotIndex) {
     if (!currentConfig.exportEnabled) return;
-    if (!currentConfig.backgroundUrl) {
-        console.warn('[Exportador Wall] (main.js) Sem backgroundUrl configurado, exportando só foto.');
+
+    // Se exportWithBackground estiver desligado, manda backgroundUrl nulo
+    const useBackground = currentConfig.exportWithBackground !== false;
+    if (!useBackground || !currentConfig.backgroundUrl) {
+        console.warn('[Exportador Wall] (main.js) Exportando sem background (apenas foto).');
     }
 
     const cols = currentConfig.cols || 1;
@@ -69,8 +75,13 @@ function triggerSouvenirExport(photoId, slotDiv, currentConfig, slotIndex) {
     if (Number.isNaN(opacity) || opacity <= 0 || opacity > 1) opacity = 1;
 
     const slotRect = slotDiv.getBoundingClientRect();
+
+    // 🔢 Número do grid: só manda pro servidor SE o toggle estiver ativado
+    const gridNumber = currentConfig.showGridNumber ? (slotIndex + 1) : null;
+
     console.log('[TRIGGER EXPORT] (main.js) Foto:', photoId,
         'slotIndex:', slotIndex,
+        'gridNumber:', gridNumber,
         'tile(row,col)=', row, col,
         'rect=', {
         x: Math.round(slotRect.left),
@@ -81,18 +92,14 @@ function triggerSouvenirExport(photoId, slotDiv, currentConfig, slotIndex) {
 
     const exportData = {
         photoId,
-        backgroundUrl: currentConfig.backgroundUrl,
-        tile: {
-            row,
-            col,
-            cols,
-            rows
-        },
+        backgroundUrl: useBackground ? currentConfig.backgroundUrl : null,
+        tile: { row, col, cols, rows },
         exportSize: {
             w: currentConfig.exportWidth || 1080,
             h: currentConfig.exportHeight || 1080
         },
-        opacity
+        opacity,
+        gridNumber // 🔢 manda pro servidor desenhar no JPEG (ou null se toggle desligado)
     };
 
     fetch('http://localhost:3000/api/export-collage', {
@@ -116,12 +123,12 @@ function triggerSouvenirExport(photoId, slotDiv, currentConfig, slotIndex) {
         });
 }
 
-
 // --- COMUNICAÇÃO ---
 if (syncChannel) {
     syncChannel.onmessage = (event) => {
         if (event.data && event.data.type === 'CONFIG_UPDATE') {
             config = event.data.data;
+            config.showGridNumber = config.showGridNumber ?? false;
             requestAnimationFrame(() => {
                 applyLayoutAndEffects();
                 updateLocalMenuUI();
@@ -139,6 +146,7 @@ setInterval(() => {
         const diskConfig = JSON.parse(stored);
         if (JSON.stringify(diskConfig) !== JSON.stringify(config)) {
             config = diskConfig;
+            config.showGridNumber = config.showGridNumber ?? false;
             applyLayoutAndEffects();
             updateLocalMenuUI();
         }
@@ -324,47 +332,90 @@ function saveGridState(state) {
     if (config.persistGrid) localStorage.setItem(GRID_STATE_KEY, JSON.stringify(state));
 }
 
+function updateSlotNumberOverlay(div, slotIndex, hasImage) {
+    const existing = div.querySelector('.grid-slot-number');
+
+    // Se não tiver imagem ou o toggle estiver desligado, remove o label
+    if (!hasImage || !config.showGridNumber) {
+        if (existing) existing.remove();
+        return;
+    }
+
+    const gridNumber = slotIndex + 1;
+    const label = existing || document.createElement('div');
+
+    label.className =
+        'grid-slot-number absolute top-1 left-1 text-white text-[11px] font-semibold ' +
+        'drop-shadow-md pointer-events-none select-none';
+
+    label.textContent = `#${gridNumber}`;
+
+    if (!existing) {
+        div.appendChild(label);
+    }
+}
+
+
 function renderCurrentState(gridState, imageMap) {
     const slots = Array.from(socialWall.children);
+
     slots.forEach((div, i) => {
-        const idInSlot = gridState[i];
-        const currentId = div.getAttribute('data-id');
-        if (idInSlot === currentId && idInSlot) {
-            const imgExisting = div.querySelector('img');
-            if (imgExisting) imgExisting.style.opacity = config.opacity;
+        const idInSlot = gridState[i] || null;
+        const currentId = div.getAttribute('data-id') || null;
+
+        // Slot vazio
+        if (!idInSlot) {
+            div.innerHTML = '';
+            div.setAttribute('data-id', '');
+            updateSlotNumberOverlay(div, i, false);
             return;
         }
-        div.innerHTML = '';
-        div.setAttribute('data-id', idInSlot || '');
-        if (idInSlot) {
-            const data = imageMap.get(idInSlot);
-            if (data) {
-                const img = document.createElement('img');
-                img.src = data.url;
-                img.className = 'w-full h-full object-cover block shadow-lg';
-                img.style.opacity = '0';
-                img.style.transition = `all ${config.animDuration}ms ease-out`;
-                let transform = 'scale(0.95)';
-                if (config.animType === 'pop') transform = 'scale(0.5)';
-                if (config.animType === 'slide-up') transform = 'translateY(50px)';
-                if (config.animType === 'rotate') transform = 'rotate(-10deg)';
-                img.style.transform = transform;
-                div.appendChild(img);
 
-                requestAnimationFrame(() => {
-                    requestAnimationFrame(() => {
-                        img.style.opacity = config.opacity;
-                        img.style.transform = 'scale(1) translateY(0) rotate(0)';
-
-                        // CHAMADA DO EXPORTADOR COM TILE
-                        const slotDiv = slots[i];
-                        setTimeout(() => {
-                            triggerSouvenirExport(idInSlot, slotDiv, config, i);
-                        }, 100);
-                    });
-                });
-            }
+        // Mesma imagem no mesmo slot: só atualiza visual + label
+        if (idInSlot === currentId) {
+            const imgExisting = div.querySelector('img');
+            if (imgExisting) imgExisting.style.opacity = config.opacity;
+            updateSlotNumberOverlay(div, i, true);
+            return;
         }
+
+        // Nova imagem nesse slot
+        div.innerHTML = '';
+        div.setAttribute('data-id', idInSlot);
+
+        const data = imageMap.get(idInSlot);
+        if (!data) {
+            updateSlotNumberOverlay(div, i, false);
+            return;
+        }
+
+        const img = document.createElement('img');
+        img.src = data.url;
+        img.className = 'w-full h-full object-cover block shadow-lg';
+        img.style.opacity = '0';
+        img.style.transition = `all ${config.animDuration}ms ease-out`;
+
+        let transform = 'scale(0.95)';
+        if (config.animType === 'pop') transform = 'scale(0.5)';
+        else if (config.animType === 'slide-up') transform = 'translateY(50px)';
+        else if (config.animType === 'rotate') transform = 'rotate(-10deg)';
+        img.style.transform = transform;
+
+        div.appendChild(img);
+        updateSlotNumberOverlay(div, i, true);
+
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                img.style.opacity = config.opacity;
+                img.style.transform = 'scale(1) translateY(0) rotate(0)';
+
+                // dispara export depois que a animação terminou
+                const slotDiv = slots[i];
+                setTimeout(() => {
+                    triggerSouvenirExport(idInSlot, slotDiv, config, i);
+                }, 100);
+            });
+        });
     });
 }
 

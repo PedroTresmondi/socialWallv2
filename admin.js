@@ -2,6 +2,9 @@ import './style.css';
 import { saveConfig, loadConfig, API_BASE_URL, GRID_STATE_KEY, getHiddenImages, clearHiddenImages, CONFIG_KEY, HIDDEN_IMAGES_KEY, addHiddenImage, syncChannel } from './shared.js';
 
 let config = loadConfig();
+// Garante que o novo campo existe na configuração (Se você não tem o shared.js aqui, adicione "config.showGridNumber = config.showGridNumber ?? false;" após loadConfig())
+config.showGridNumber = config.showGridNumber ?? false;
+
 let currentFilter = 'queue'; // Estado inicial da aba (queue, wall, removed)
 
 // --- ELEMENTOS ---
@@ -20,6 +23,9 @@ const getEls = () => ({
     heroCheck: document.getElementById('hero-enabled'), heroInterval: document.getElementById('hero-interval'),
     idleCheck: document.getElementById('idle-enabled'), idleTimeout: document.getElementById('idle-timeout'),
     removalCheck: document.getElementById('removal-mode'),
+    // NOVO: Toggle para número do grid
+    showGridNumCheck: document.getElementById('show-grid-num'),
+
     gapVal: document.getElementById('gap-value'), opacityVal: document.getElementById('opacity-value'), durVal: document.getElementById('duration-value'), procVal: document.getElementById('process-interval-val'),
     heroIntervalVal: document.getElementById('hero-interval-val'), idleTimeoutVal: document.getElementById('idle-timeout-val'),
     slotsFree: document.getElementById('slots-free'), slotsTotal: document.getElementById('slots-total'), queueCount: document.getElementById('queue-count'),
@@ -138,6 +144,9 @@ function updateUI() {
     if (els.removalCheck) els.removalCheck.checked = config.removalMode;
     if (els.tickerEnabled) els.tickerEnabled.checked = config.tickerEnabled;
 
+    // NOVO: Toggle do número do grid
+    if (els.showGridNumCheck) els.showGridNumCheck.checked = config.showGridNumber;
+
     if (els.logoUrl) els.logoUrl.value = config.logoUrl || '';
     if (els.logoPosition) els.logoPosition.value = config.logoPosition || 'top-right';
     if (els.tickerText) els.tickerText.value = config.tickerText || '';
@@ -209,6 +218,8 @@ function setupListeners() {
     const chkBind = (el, key) => el?.addEventListener('change', e => change(key, e.target.checked, true));
     chkBind(els.randCheck, 'randomPosition'); chkBind(els.persistCheck, 'persistGrid'); chkBind(els.removalCheck, 'removalMode');
     chkBind(els.heroCheck, 'heroEnabled'); chkBind(els.idleCheck, 'idleEnabled'); chkBind(els.tickerEnabled, 'tickerEnabled');
+    // NOVO: Listener do toggle do número do grid
+    chkBind(els.showGridNumCheck, 'showGridNumber');
 
     // **NOVO: Checkbox de Exportação**
     chkBind(els.exportCheck, 'exportEnabled');
@@ -248,16 +259,51 @@ function setupListeners() {
     if (els.tabRemoved) els.tabRemoved.addEventListener('click', () => setTab('removed'));
 }
 
-function initStatusMonitor() { const el = document.getElementById('status-log'); if (!el) return; const es = new EventSource('http://localhost:3000/api/status'); es.onmessage = (e) => { const d = JSON.parse(e.data); const div = document.createElement('div'); div.className = d.type === 'error' ? 'text-red-400' : d.type === 'success' ? 'text-green-400' : 'text-slate-300'; div.innerText = `[${d.time}] ${d.msg}`; el.appendChild(div); el.scrollTop = el.scrollHeight; }; }
-const startDropboxMonitor = async () => { if (!config.dropboxToken) return; try { await fetch('http://localhost:3000/api/dropbox/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: config.dropboxToken, folder: config.dropboxFolder }) }); } catch (e) { } };
-async function fetchGallery() { const source = config.sourceMode || 'local'; let url = `${API_BASE_URL}?source=${source}`; if (source === 'dropbox') url += `&token=${config.dropboxToken}&folderPath=${config.dropboxFolder}`; try { const res = await fetch(url); const images = await res.json(); renderGallery(images); updateStats(images.length); } catch (e) { } }
+// CORREÇÃO: Usando a rota /events para SSE
+function initStatusMonitor() {
+    const el = document.getElementById('status-log');
+    if (!el) return;
 
-// --- RENDERIZADOR DA GALERIA COM FILTROS ---
+    // A rota correta do Server-Sent Events é /events
+    const es = new EventSource('http://localhost:3000/events');
+
+    es.onopen = () => console.log("SSE: Conexão de status estabelecida.");
+    es.onerror = (err) => {
+        console.error("SSE: Erro na conexão de status. Certifique-se que o servidor está rodando.");
+        if (el) el.innerHTML = `<div>[ERRO] Falha na conexão com servidor.</div>`;
+    };
+
+    es.onmessage = (e) => {
+        const d = JSON.parse(e.data);
+        const div = document.createElement('div');
+
+        const typeClass = d.type === 'error' ? 'text-red-400' : d.type === 'success' ? 'text-green-400' : 'text-slate-300';
+
+        div.className = typeClass;
+        div.innerText = `[${d.time}] ${d.msg}`;
+        el.appendChild(div);
+        el.scrollTop = el.scrollHeight;
+    };
+}
+
+const startDropboxMonitor = async () => { if (!config.dropboxToken) return; try { await fetch('http://localhost:3000/api/dropbox/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: config.dropboxToken, folder: config.dropboxFolder }) }); } catch (e) { } };
+async function fetchGallery() { const source = config.sourceMode || 'local'; let url = `http://localhost:3000/api/images?source=${source}`; if (source === 'dropbox') url += `&token=${config.dropboxToken}&folderPath=${config.dropboxFolder}`; try { const res = await fetch(url); const images = await res.json(); renderGallery(images); updateStats(images.length); } catch (e) { } }
+
+// --- RENDERIZADOR DA GALERIA COM FILTROS E NÚMERO DO GRID ---
 function renderGallery(images) {
     const els = getEls(); if (!els.gallery) return;
     const gs = JSON.parse(localStorage.getItem(GRID_STATE_KEY) || '[]');
     const usedIds = new Set(gs.filter(id => id));
     const hiddenIds = getHiddenImages();
+
+    const imageIdToGridPos = {};
+    gs.forEach((id, index) => {
+        if (id !== null) {
+            imageIdToGridPos[id] = index + 1; // Posição 1, 2, 3...
+        }
+    });
+    const showGridNumbers = config.showGridNumber === true;
+
 
     // FILTRA A LISTA BASEADA NA ABA ATIVA
     let displayImages = [];
@@ -281,39 +327,44 @@ function renderGallery(images) {
         const isOnWall = usedIds.has(img.id);
         const isHidden = hiddenIds.includes(img.id);
 
+        // Exibe o número do grid se estiver na Wall + toggle ligado
+        const gridNumber = imageIdToGridPos[img.id];
+        const gridNumberDisplay = (showGridNumbers && isOnWall && gridNumber)
+            ? `<span class="absolute top-1 right-1 text-white bg-indigo-600 text-[9px] px-1.5 py-0.5 rounded font-bold shadow-sm z-10">#${gridNumber}</span>`
+            : '';
+
+
         let border = 'border-slate-700 hover:border-slate-500';
         if (isOnWall) border = 'border-green-500 border-2 shadow-[0_0_10px_rgba(74,222,128,0.3)]';
         else if (isHidden) border = 'border-red-900 border-2 opacity-40 grayscale';
         else border = 'border-blue-500/30 border-2'; // Fila
 
         let badge = '';
-        if (isOnWall) badge = '<span class="absolute top-1 left-1 bg-green-600 text-white text-[9px] px-1.5 py-0.5 rounded font-bold shadow-sm">NA TELA</span>';
-        else if (isHidden) badge = '<span class="absolute top-1 left-1 bg-red-900 text-white text-[9px] px-1.5 py-0.5 rounded font-bold shadow-sm">LIXEIRA</span>';
-        else badge = '<span class="absolute top-1 left-1 bg-blue-600 text-white text-[9px] px-1.5 py-0.5 rounded font-bold shadow-sm">FILA</span>';
+        if (isOnWall) badge = '<span class="absolute top-1 left-1 bg-green-600 text-white text-[9px] px-1.5 py-0.5 rounded font-bold shadow-sm z-10">NA TELA</span>';
+        else if (isHidden) badge = '<span class="absolute top-1 left-1 bg-red-900 text-white text-[9px] px-1.5 py-0.5 rounded font-bold shadow-sm z-10">LIXEIRA</span>';
+        else badge = '<span class="absolute top-1 left-1 bg-blue-600 text-white text-[9px] px-1.5 py-0.5 rounded font-bold shadow-sm z-10">FILA</span>';
 
         const div = document.createElement('div');
         div.className = `aspect-square bg-slate-800 rounded-lg relative overflow-hidden group border transition-all duration-200 ${border}`;
         div.innerHTML = `
-            ${badge}
-            <img src="${img.url}" class="w-full h-full object-cover">
-            <div class="absolute inset-0 bg-black/80 hidden group-hover:flex flex-col items-center justify-center gap-2 transition-all backdrop-blur-sm">
-                ${isOnWall
+      ${badge}
+        ${gridNumberDisplay}       <img src="${img.url}" class="w-full h-full object-cover">
+      <div class="absolute inset-0 bg-black/80 hidden group-hover:flex flex-col items-center justify-center gap-2 transition-all backdrop-blur-sm">
+        ${isOnWall
                 ? `<button onclick="actRem('${img.id}')" class="bg-red-600 hover:bg-red-500 text-white text-[10px] px-3 py-1.5 rounded font-bold w-24">Remover</button>`
                 : isHidden
                     ? `<button onclick="actRes('${img.id}')" class="bg-slate-500 hover:bg-slate-400 text-white text-[10px] px-3 py-1.5 rounded font-bold w-24">Restaurar</button>`
                     : `<button onclick="actBlk('${img.id}')" class="bg-red-900 hover:bg-red-800 text-white text-[10px] px-3 py-1.5 rounded font-bold w-24">Bloquear</button>`
             }
-                <span class="text-[9px] text-slate-400 font-mono truncate max-w-[90%]">${img.id.substring(0, 15)}...</span>
-            </div>
-        `;
+        <span class="text-[9px] text-slate-400 font-mono truncate max-w-[90%]">${img.id.substring(0, 15)}...</span>
+      </div>
+    `;
         els.gallery.appendChild(div);
     });
 }
 
 window.actRem = (id) => {
-    // adiciona na lista de hidden + broadcast
     addHiddenImage(id);
-    // limpa do grid state
     let gs = JSON.parse(localStorage.getItem(GRID_STATE_KEY) || '[]');
     gs = gs.map(x => x === id ? null : x);
     localStorage.setItem(GRID_STATE_KEY, JSON.stringify(gs));
@@ -323,7 +374,6 @@ window.actRem = (id) => {
 };
 
 window.actBlk = (id) => {
-    // bloqueia (hidden) e dispara broadcast
     addHiddenImage(id);
     let gs = JSON.parse(localStorage.getItem(GRID_STATE_KEY) || '[]');
     if (gs.includes(id)) {

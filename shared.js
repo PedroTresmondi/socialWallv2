@@ -30,6 +30,7 @@ export const defaultConfig = {
     // Comportamento
     randomPosition: true,
     animType: 'pop', animDuration: 600,
+    showGridNumber: false,          // 🔢 mostrar número do slot no telão
 
     // Modos
     heroEnabled: false, heroInterval: 10,
@@ -42,10 +43,13 @@ export const defaultConfig = {
     sourceMode: 'local',
     dropboxToken: '', dropboxFolder: '/',
 
-    exportEnabled: false, 
+    // Exportação
+    exportEnabled: false,
     exportWidth: 300,
     exportHeight: 300,
+    exportWithBackground: true,     // se false, exporta só a foto
 };
+
 
 export function loadConfig() {
     try {
