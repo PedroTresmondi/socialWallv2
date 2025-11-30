@@ -9,6 +9,11 @@ export const STATE_SYNC_URL = 'http://localhost:3000/api/state';
 export const syncChannel = new BroadcastChannel('social_wall_sync_channel_v27');
 
 export const defaultConfig = {
+    // Metadados do Evento / Tela
+    eventName: '',
+    screenWidth: 1920,
+    screenHeight: 1080,
+
     // Layout
     layoutMode: 'target',
     targetCount: 20,
@@ -49,7 +54,48 @@ export const defaultConfig = {
     exportWidth: 300,
     exportHeight: 300,
     exportWithBackground: true,     // se false, exporta só a foto
+    exportBaseFolder: 'exports'     // pasta base para export (usada no backend depois)
 };
+
+/**
+ * Cálculo "inteligente" de grid baseado em:
+ * - target (quantidade de fotos alvo)
+ * - aspectRatio da tela (largura / altura)
+ *
+ * Retorna objeto:
+ * { rows, cols, cells, leftover }
+ */
+export function computeGridFromTarget(target, aspectRatio = 16 / 9) {
+    const t = Math.max(1, Math.floor(target || 1));
+    const ar = aspectRatio > 0 ? aspectRatio : 16 / 9;
+
+    let best = null;
+
+    for (let rows = 1; rows <= t; rows++) {
+        const cols = Math.ceil(t / rows);
+        const cells = rows * cols;
+        const gridRatio = cols / rows;
+        const ratioDiff = Math.abs(gridRatio - ar);
+        const leftover = cells - t;
+
+        const score = leftover * 10 + ratioDiff;
+
+        if (!best || score < best.score) {
+            best = { rows, cols, cells, leftover, score };
+        }
+    }
+
+    if (!best) {
+        return { rows: 1, cols: t, cells: t, leftover: 0 };
+    }
+
+    return {
+        rows: best.rows,
+        cols: best.cols,
+        cells: best.cells,
+        leftover: best.leftover
+    };
+}
 
 // --- helpers de estado para backup ---
 
@@ -140,14 +186,17 @@ export function loadConfig() {
     } catch (e) { }
     return defaultConfig;
 }
+
 export function saveConfig(config) {
     localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
     try { syncChannel.postMessage({ type: 'CONFIG_UPDATE', data: config }); } catch (e) { }
     scheduleStateSync();
 }
+
 export function getHiddenImages() {
     try { return JSON.parse(localStorage.getItem(HIDDEN_IMAGES_KEY) || '[]'); } catch (e) { return []; }
 }
+
 export function addHiddenImage(id) {
     const list = getHiddenImages();
     if (!list.includes(id)) {
@@ -157,6 +206,7 @@ export function addHiddenImage(id) {
         scheduleStateSync();
     }
 }
+
 export function removeHiddenImage(id) {
     let list = getHiddenImages();
     list = list.filter(x => x !== id);
@@ -164,6 +214,7 @@ export function removeHiddenImage(id) {
     try { syncChannel.postMessage({ type: 'HIDDEN_UPDATE' }); } catch (e) { }
     scheduleStateSync();
 }
+
 export function clearHiddenImages() {
     localStorage.removeItem(HIDDEN_IMAGES_KEY);
     try { syncChannel.postMessage({ type: 'HIDDEN_UPDATE' }); } catch (e) { }

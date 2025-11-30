@@ -52,16 +52,6 @@ const getEls = () => ({
 const socialWall = document.getElementById('social-wall');
 
 // --- FUNÇÃO DE EXPORTAÇÃO (SOUVENIR) ---
-
-/**
- * Calcula qual tile do grid (row/col) esse slot representa
- * e envia pro servidor junto com a foto.
- *
- * @param {string} photoId   - ID / nome do arquivo da foto (ex: dbx-...jpg)
- * @param {HTMLElement} slotDiv - DIV do slot no grid
- * @param {object} currentConfig - config atual (contém cols, rows, backgroundUrl, etc.)
- * @param {number} slotIndex - índice do slot no array (0..cols*rows-1)
- */
 function triggerSouvenirExport(photoId, slotDiv, currentConfig, slotIndex) {
     if (!currentConfig.exportEnabled) return;
 
@@ -129,7 +119,6 @@ function triggerSouvenirExport(photoId, slotDiv, currentConfig, slotIndex) {
 }
 
 
-
 // --- COMUNICAÇÃO ---
 if (syncChannel) {
     syncChannel.onmessage = (event) => {
@@ -163,6 +152,7 @@ function calculateGridDimensions() {
     const W = window.innerWidth;
     const H = window.innerHeight;
 
+    // 🎯 Modo "Quantidade alvo"
     if (config.layoutMode === 'target') {
         const target = Math.max(1, config.targetCount || 20);
         const screenRatio = W / H;
@@ -171,6 +161,30 @@ function calculateGridDimensions() {
         return { cols: bestCols, rows: bestRows };
     }
 
+    // 🧩 Novo modo: "Ajustar p/ todas as fotos"
+    if (config.layoutMode === 'fit-all') {
+        const screenRatio = W / H;
+        const hiddenImages = getHiddenImages();
+        // só conta as disponíveis (não escondidas)
+        const available = globalBackendImages.filter(img => !hiddenImages.includes(img.id));
+        let target = available.length;
+
+        // se ainda não tem nenhuma foto, cai num default
+        if (target <= 0) {
+            target = Math.max(1, config.targetCount || 20);
+        }
+
+        let bestCols = Math.ceil(Math.sqrt(target * screenRatio));
+        let bestRows = Math.ceil(target / bestCols);
+
+        // garante pelo menos 1x1
+        bestCols = Math.max(1, bestCols);
+        bestRows = Math.max(1, bestRows);
+
+        return { cols: bestCols, rows: bestRows };
+    }
+
+    // 📐 Auto-fit por tamanho de foto
     if (config.layoutMode === 'auto-fit') {
         const pW = Math.max(50, config.photoWidth || 300);
         const pH = Math.max(50, config.photoHeight || 300);
@@ -180,6 +194,7 @@ function calculateGridDimensions() {
         };
     }
 
+    // 🖐️ Manual
     return { cols: config.cols || 4, rows: config.rows || 3 };
 }
 
@@ -520,7 +535,16 @@ async function init() {
         try {
             const url = `${API_BASE_URL}?source=${config.sourceMode || 'local'}`;
             const res = await fetch(url);
-            if (res.ok) globalBackendImages = await res.json();
+            if (res.ok) {
+                const data = await res.json();
+                const prevCount = globalBackendImages.length;
+                globalBackendImages = data;
+
+                // se estamos no modo "fit-all", qualquer mudança de quantidade refaz o layout
+                if (config.layoutMode === 'fit-all' && data.length !== prevCount) {
+                    applyLayoutAndEffects();
+                }
+            }
         } catch (e) { }
     };
     await poll();

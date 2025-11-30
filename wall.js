@@ -45,23 +45,13 @@ const getEls = () => ({
 const socialWall = document.getElementById('social-wall');
 
 // --- FUNÇÃO DE EXPORTAÇÃO (SOUVENIR) ---
-
-/**
- * Calcula qual tile do grid (row/col) esse slot representa
- * e envia pro servidor junto com a foto.
- *
- * @param {string} photoId   - ID / nome do arquivo da foto (ex: dbx-...jpg)
- * @param {HTMLElement} slotDiv - DIV do slot no grid
- * @param {object} currentConfig - config atual (contém cols, rows, backgroundUrl, etc.)
- * @param {number} slotIndex - índice do slot no array (0..cols*rows-1)
- */
 function triggerSouvenirExport(photoId, slotDiv, currentConfig, slotIndex) {
     if (!currentConfig.exportEnabled) return;
 
     // Se exportWithBackground estiver desligado, manda backgroundUrl nulo
     const useBackground = currentConfig.exportWithBackground !== false;
     if (!useBackground || !currentConfig.backgroundUrl) {
-        console.warn('[Exportador Wall] (main.js) Exportando sem background (apenas foto).');
+        console.warn('[Exportador Wall] (wall.js) Exportando sem background (apenas foto).');
     }
 
     const cols = currentConfig.cols || 1;
@@ -79,7 +69,7 @@ function triggerSouvenirExport(photoId, slotDiv, currentConfig, slotIndex) {
     // 🔢 Número do grid: só manda pro servidor SE o toggle estiver ativado
     const gridNumber = currentConfig.showGridNumber ? (slotIndex + 1) : null;
 
-    console.log('[TRIGGER EXPORT] (main.js) Foto:', photoId,
+    console.log('[TRIGGER EXPORT] (wall.js) Foto:', photoId,
         'slotIndex:', slotIndex,
         'gridNumber:', gridNumber,
         'tile(row,col)=', row, col,
@@ -113,13 +103,13 @@ function triggerSouvenirExport(photoId, slotDiv, currentConfig, slotIndex) {
         })
         .then(data => {
             if (data.url) {
-                console.log(`[Exportador Wall] (main.js) Sucesso! Souvenir em: ${data.url} (backgroundUsed=${data.backgroundUsed})`);
+                console.log(`[Exportador Wall] (wall.js) Sucesso! Souvenir em: ${data.url} (backgroundUsed=${data.backgroundUsed})`);
             } else {
-                console.warn('[Exportador Wall] (main.js) Resposta sem URL:', data);
+                console.warn('[Exportador Wall] (wall.js) Resposta sem URL:', data);
             }
         })
         .catch(err => {
-            console.error('[Exportador Wall] (main.js) Erro ao chamar /api/export-collage:', err);
+            console.error('[Exportador Wall] (wall.js) Erro ao chamar /api/export-collage:', err);
         });
 }
 
@@ -158,6 +148,7 @@ function calculateGridDimensions() {
     const W = window.innerWidth;
     const H = window.innerHeight;
 
+    // 🎯 Modo "Quantidade alvo"
     if (config.layoutMode === 'target') {
         const target = Math.max(1, config.targetCount || 20);
         const screenRatio = W / H;
@@ -166,6 +157,27 @@ function calculateGridDimensions() {
         return { cols: bestCols, rows: bestRows };
     }
 
+    // 🧩 Modo "Ajustar p/ todas as fotos"
+    if (config.layoutMode === 'fit-all') {
+        const screenRatio = W / H;
+        const hiddenImages = getHiddenImages();
+        const available = globalBackendImages.filter(img => !hiddenImages.includes(img.id));
+        let target = available.length;
+
+        if (target <= 0) {
+            target = Math.max(1, config.targetCount || 20);
+        }
+
+        let bestCols = Math.ceil(Math.sqrt(target * screenRatio));
+        let bestRows = Math.ceil(target / bestCols);
+
+        bestCols = Math.max(1, bestCols);
+        bestRows = Math.max(1, bestRows);
+
+        return { cols: bestCols, rows: bestRows };
+    }
+
+    // 📐 Auto-fit por tamanho de foto
     if (config.layoutMode === 'auto-fit') {
         const pW = Math.max(50, config.photoWidth || 300);
         const pH = Math.max(50, config.photoHeight || 300);
@@ -175,6 +187,7 @@ function calculateGridDimensions() {
         };
     }
 
+    // 🖐️ Manual
     return { cols: config.cols || 4, rows: config.rows || 3 };
 }
 
@@ -506,7 +519,15 @@ async function init() {
         try {
             const url = `${API_BASE_URL}?source=${config.sourceMode || 'local'}`;
             const res = await fetch(url);
-            if (res.ok) globalBackendImages = await res.json();
+            if (res.ok) {
+                const data = await res.json();
+                const prevCount = globalBackendImages.length;
+                globalBackendImages = data;
+
+                if (config.layoutMode === 'fit-all' && data.length !== prevCount) {
+                    applyLayoutAndEffects();
+                }
+            }
         } catch (e) { }
     };
     await poll();

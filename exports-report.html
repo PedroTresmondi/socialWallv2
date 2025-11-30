@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Relatório de Exports - Social Wall</title>
+  <link rel="stylesheet" href="./style.css">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    html,
+    body {
+      overflow-y: auto !important;
+      height: auto !important;
+      min-height: 100vh;
+      background-color: #0f172a;
+      color: #f8fafc;
+      font-family: 'Inter', sans-serif;
+    }
+
+    ::-webkit-scrollbar {
+      width: 10px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: #1e293b;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: #475569;
+      border-radius: 5px;
+      border: 2px solid #1e293b;
+    }
+
+    .glass-panel {
+      background: rgba(30, 41, 59, 0.7);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
+    }
+
+    .badge {
+      font-size: 0.7rem;
+      letter-spacing: 0.08em;
+    }
+  </style>
+</head>
+
+<body class="min-h-screen pb-16 selection:bg-indigo-500 selection:text-white">
+
+  <!-- HEADER -->
+  <div class="sticky top-0 z-40 bg-slate-900/95 backdrop-blur border-b border-slate-800 p-4 shadow-lg">
+    <div class="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
+      <div class="flex items-center gap-3">
+        <!-- LOGO -->
+        <img src="./assets/logos/phygital_logo.avif" alt="Logo Phygital Solutions"
+          class="h-10 w-auto object-contain">
+        <div>
+          <h1 class="text-xl font-bold text-white flex items-center gap-2">
+            Social Wall
+            <span class="text-xs px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/40">
+              Relatório de Exports
+            </span>
+          </h1>
+          <p class="text-[10px] text-slate-400 uppercase tracking-wider">
+            Pós-evento & Souvenirs
+          </p>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <a href="./admin.html"
+          class="text-xs px-4 py-2 rounded-lg border border-slate-700 bg-slate-800/50 hover:bg-slate-700 transition flex items-center gap-2">
+          ⬅️ Voltar para o Admin
+        </a>
+        <span
+          class="badge inline-flex items-center px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/40">
+          📁 Pasta: <span class="ml-1 font-mono text-[10px]">/exports</span>
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN -->
+  <main class="max-w-6xl mx-auto p-6 space-y-6">
+
+    <!-- STATUS / RESUMO -->
+    <section class="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div class="glass-panel p-4 rounded-xl border-l-4 border-emerald-500">
+        <p class="text-[10px] uppercase text-emerald-300 font-bold mb-1 tracking-wider">Total de Exports</p>
+        <p id="res-total-exports" class="text-3xl font-extrabold text-emerald-400">–</p>
+        <p class="text-[11px] text-slate-400 mt-1">Quantidade de souvenirs gerados.</p>
+      </div>
+
+      <div class="glass-panel p-4 rounded-xl border-l-4 border-indigo-500">
+        <p class="text-[10px] uppercase text-indigo-300 font-bold mb-1 tracking-wider">Primeiro Export</p>
+        <p id="res-first-export" class="text-sm font-semibold text-slate-100">–</p>
+        <p class="text-[11px] text-slate-400 mt-1">Início da geração de imagens.</p>
+      </div>
+
+      <div class="glass-panel p-4 rounded-xl border-l-4 border-purple-500">
+        <p class="text-[10px] uppercase text-purple-300 font-bold mb-1 tracking-wider">Último Export</p>
+        <p id="res-last-export" class="text-sm font-semibold text-slate-100">–</p>
+        <p class="text-[11px] text-slate-400 mt-1">Última imagem registrada.</p>
+      </div>
+
+      <div class="glass-panel p-4 rounded-xl border-l-4 border-amber-500">
+        <p class="text-[10px] uppercase text-amber-300 font-bold mb-1 tracking-wider">Intervalo Médio</p>
+        <p id="res-avg-interval" class="text-sm font-semibold text-slate-100">–</p>
+        <p id="res-duration" class="text-[11px] text-slate-400 mt-1">Duração total: –</p>
+      </div>
+    </section>
+
+    <!-- DETALHES POR PASTA / LOTE -->
+    <section class="glass-panel p-5 rounded-xl border-t-4 border-slate-600">
+      <div class="flex items-center justify-between mb-4 gap-4">
+        <h2 class="text-base font-bold text-white flex items-center gap-2">
+          📊 Detalhes por pasta de export
+        </h2>
+        <button id="btn-reload"
+          class="text-xs px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-600 flex items-center gap-2">
+          🔄 Recarregar
+        </button>
+      </div>
+
+      <div id="events-container"
+        class="space-y-2 max-h-[360px] overflow-y-auto pr-1 border border-slate-800 rounded-lg bg-slate-900/40 p-2">
+        <div class="text-center text-slate-500 text-xs py-8">
+          Carregando dados de export...
+        </div>
+      </div>
+
+      <p class="text-[11px] text-slate-500 mt-3">
+        Os arquivos de imagem (.jpg) e o log em CSV ficam na pasta
+        <span class="font-mono text-xs bg-slate-900 px-2 py-1 rounded border border-slate-700">/exports</span>
+        do servidor Node.
+      </p>
+    </section>
+
+  </main>
+
+  <script>
+    const API_EXPORT_EVENTS = 'http://localhost:3000/api/exports/events';
+
+    function formatDateTime(isoString) {
+      if (!isoString) return '–';
+      const d = new Date(isoString);
+      if (isNaN(d.getTime())) return '–';
+      return d.toLocaleString('pt-BR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      });
+    }
+
+    function formatDurationMs(ms) {
+      if (ms == null || isNaN(ms)) return '–';
+
+      const totalSeconds = Math.floor(ms / 1000);
+      const hours = Math.floor(totalSeconds / 3600);
+      const minutes = Math.floor((totalSeconds % 3600) / 60);
+      const seconds = totalSeconds % 60;
+
+      const parts = [];
+      if (hours) parts.push(`${hours}h`);
+      if (minutes) parts.push(`${minutes}min`);
+      if (seconds || parts.length === 0) parts.push(`${seconds}s`);
+
+      return parts.join(' ');
+    }
+
+    function formatAvgInterval(ms) {
+      if (ms == null || isNaN(ms)) return '–';
+      if (ms < 1000) return `${ms.toFixed(0)} ms`;
+      return `${(ms / 1000).toFixed(2)} s`;
+    }
+
+    async function loadExportReport() {
+      const container = document.getElementById('events-container');
+      const totalEl = document.getElementById('res-total-exports');
+      const firstEl = document.getElementById('res-first-export');
+      const lastEl = document.getElementById('res-last-export');
+      const avgEl = document.getElementById('res-avg-interval');
+      const durationEl = document.getElementById('res-duration');
+
+      try {
+        container.innerHTML = `
+          <div class="text-center text-slate-500 text-xs py-8">
+            Carregando dados de export...
+          </div>
+        `;
+
+        const res = await fetch(API_EXPORT_EVENTS);
+        if (!res.ok) {
+          throw new Error('Falha ao carregar /api/exports/events');
+        }
+
+        const data = await res.json();
+        const events = Array.isArray(data) ? data : [];
+
+        if (events.length === 0) {
+          totalEl.textContent = '0';
+          firstEl.textContent = '–';
+          lastEl.textContent = '–';
+          avgEl.textContent = '–';
+          durationEl.textContent = 'Duração total: –';
+
+          container.innerHTML = `
+            <div class="text-center text-slate-500 text-xs py-10">
+              Nenhum export foi registrado ainda.
+            </div>
+          `;
+          return;
+        }
+
+        // Agrega tudo pra fazer o resumo geral
+        let globalTotal = 0;
+        let firstTs = null;
+        let lastTs = null;
+        let weightedAvgSum = 0;
+        let weightTotal = 0;
+
+        events.forEach(ev => {
+          const total = ev.totalExports || 0;
+          globalTotal += total;
+
+          if (ev.firstExportAt) {
+            const ts = new Date(ev.firstExportAt).getTime();
+            if (!firstTs || ts < firstTs) firstTs = ts;
+          }
+
+          if (ev.lastExportAt) {
+            const ts = new Date(ev.lastExportAt).getTime();
+            if (!lastTs || ts > lastTs) lastTs = ts;
+          }
+
+          if (ev.avgIntervalMs && total > 1) {
+            weightedAvgSum += ev.avgIntervalMs * (total - 1);
+            weightTotal += (total - 1);
+          }
+        });
+
+        const globalAvgInterval = weightTotal > 0
+          ? (weightedAvgSum / weightTotal)
+          : null;
+
+        totalEl.textContent = globalTotal.toString();
+        firstEl.textContent = firstTs ? formatDateTime(new Date(firstTs).toISOString()) : '–';
+        lastEl.textContent = lastTs ? formatDateTime(new Date(lastTs).toISOString()) : '–';
+        avgEl.textContent = formatAvgInterval(globalAvgInterval);
+
+        if (firstTs && lastTs) {
+          const durationMs = lastTs - firstTs;
+          durationEl.textContent = `Duração total: ${formatDurationMs(durationMs)}`;
+        } else {
+          durationEl.textContent = 'Duração total: –';
+        }
+
+        // Render por pasta / lote
+        container.innerHTML = '';
+
+        events
+          .slice()
+          .sort((a, b) => {
+            const ta = a.firstExportAt ? new Date(a.firstExportAt).getTime() : 0;
+            const tb = b.firstExportAt ? new Date(b.firstExportAt).getTime() : 0;
+            return tb - ta;
+          })
+          .forEach((ev, idx) => {
+            const div = document.createElement('div');
+            const first = formatDateTime(ev.firstExportAt);
+            const last = formatDateTime(ev.lastExportAt);
+            const duration = (ev.firstExportAt && ev.lastExportAt)
+              ? formatDurationMs(new Date(ev.lastExportAt) - new Date(ev.firstExportAt))
+              : '–';
+
+            div.className =
+              'flex flex-col md:flex-row items-start md:items-center justify-between gap-3 px-3 py-2 rounded-lg ' +
+              'bg-slate-900/70 border border-slate-700 hover:border-slate-500 transition';
+
+            div.innerHTML = `
+              <div class="space-y-1">
+                <div class="flex items-center gap-2">
+                  <span class="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-600">
+                    Lote ${events.length - idx}
+                  </span>
+                  <span class="font-mono text-xs text-slate-400">pasta: ${ev.folder || 'exports'}</span>
+                </div>
+                <p class="text-xs text-slate-300">
+                  <span class="font-semibold text-emerald-300">${ev.totalExports || 0}</span>
+                  exports •
+                  <span class="text-slate-400">Primeiro:</span> ${first} •
+                  <span class="text-slate-400">Último:</span> ${last}
+                </p>
+                <p class="text-[11px] text-slate-400">
+                  Duração do lote: <span class="font-medium text-slate-200">${duration}</span> •
+                  Intervalo médio: <span class="font-medium text-indigo-300">${formatAvgInterval(ev.avgIntervalMs)}</span>
+                </p>
+              </div>
+            `;
+
+            container.appendChild(div);
+          });
+
+      } catch (err) {
+        console.error(err);
+        container.innerHTML = `
+          <div class="text-center text-red-400 text-xs py-10">
+            Erro ao carregar dados de export.<br>
+            Verifique se o servidor Node (porta 3000) está rodando e a rota <code class="font-mono">/api/exports/events</code> está disponível.
+          </div>
+        `;
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      const btn = document.getElementById('btn-reload');
+      if (btn) btn.addEventListener('click', loadExportReport);
+      loadExportReport();
+    });
+  </script>
+
+</body>
+
+</html>

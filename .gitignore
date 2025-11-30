@@ -1,2 +1,5 @@
 node_modules/
 wall-state.json
+backgrounds/
+exports/
+processed-images/

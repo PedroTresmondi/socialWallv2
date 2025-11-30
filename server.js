@@ -15,7 +15,7 @@ const PROCESSED_IMAGES_DIR = path.join(__dirname, 'processed-images');
 const CAMERA_INPUT_DIR = path.join(__dirname, 'camera-input');
 const BACKGROUNDS_DIR = path.join(__dirname, 'backgrounds');
 const EXPORT_DIR = path.join(__dirname, 'exports');
-const STATE_FILE = path.join(__dirname, 'wall-state.json'); // ⬅ arquivo de backup
+const STATE_FILE = path.join(__dirname, 'wall-state.json'); // arquivo de backup
 
 // Garante que as pastas existem
 [PROCESSED_IMAGES_DIR, CAMERA_INPUT_DIR, BACKGROUNDS_DIR, EXPORT_DIR].forEach(dir => {
@@ -37,7 +37,7 @@ app.use('/exports', express.static(EXPORT_DIR));
 // --- SSE (LOG PARA CLIENTES) ---
 let sseClients = [];
 
-// ROTA DE EVENTOS SSE (CORRETA)
+// ROTA DE EVENTOS SSE
 app.get('/events', (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
@@ -63,6 +63,14 @@ function logToClients(msg, type = 'log') {
     sseClients.forEach(c => c.res.write(`data: ${payload}\n\n`));
     console.log(`[${type.toUpperCase()}] ${msg}`);
 }
+
+// --- HEALTHCHECK SIMPLES ---
+app.get('/health', (req, res) => {
+    res.json({
+        ok: true,
+        time: new Date().toISOString()
+    });
+});
 
 // --- OVERLAY DO NÚMERO DO GRID (SVG -> Buffer p/ sharp) ---
 // versão discreta: só texto, sem fundo
@@ -164,7 +172,6 @@ async function processEntries(dbx, entries) {
     );
     for (const file of imageEntries) {
         try {
-            // Usa o file.id do Dropbox no nome do arquivo para rastreamento
             const fileIdPart = file.id.replace(/[^a-zA-Z0-9]/gi, '');
 
             const existing = fs
@@ -173,7 +180,6 @@ async function processEntries(dbx, entries) {
 
             if (existing) continue;
 
-            // Nome do arquivo: dbx-DBXID-TIMESTAMP-nome.ext
             const safeName = path
                 .basename(file.name, path.extname(file.name))
                 .replace(/[^a-z0-9]/gi, '_');
@@ -217,7 +223,6 @@ watcher.on('add', async filePath => {
             .resize(800, 800, { fit: 'cover' })
             .toFile(path.join(PROCESSED_IMAGES_DIR, outputName));
         logToClients(`📸 Câmera: ${fileName}`, 'success');
-        // Opcional: deletar o arquivo original da camera-input após processar
         fs.unlinkSync(filePath);
     } catch (err) {
         logToClients(`Erro Câmera: ${err.message}`, 'error');
@@ -232,7 +237,7 @@ const storagePhotos = multer.diskStorage({
         const name = path
             .basename(file.originalname, ext)
             .replace(/[^a-z0-9]/gi, '_');
-        cb(null, `local-upload-${Date.now()}-${name}${ext}`); // Nome temporário
+        cb(null, `local-upload-${Date.now()}-${name}${ext}`);
     }
 });
 const uploadPhotos = multer({ storage: storagePhotos });
@@ -248,7 +253,6 @@ const storageBg = multer.diskStorage({
 const uploadBg = multer({ storage: storageBg });
 
 // --- BACKUP DE ESTADO (config + grid + bloqueados) ---
-// GET: devolve o conteúdo do arquivo (ou defaults)
 app.get('/api/state', (req, res) => {
     try {
         if (!fs.existsSync(STATE_FILE)) {
@@ -271,7 +275,6 @@ app.get('/api/state', (req, res) => {
     }
 });
 
-// POST: salva snapshot vindo do front
 app.post('/api/state', (req, res) => {
     try {
         const body = req.body || {};
@@ -408,7 +411,6 @@ app.post('/api/export-collage', async (req, res) => {
             .json({ message: 'Dados insuficientes para exportação.' });
     }
 
-    // Normaliza o gridNumber (#1, #2, ...) – se vier zoado, ignora
     let gridNumber = rawGridNumber;
     if (gridNumber !== undefined && gridNumber !== null) {
         gridNumber = parseInt(gridNumber, 10);
@@ -493,7 +495,6 @@ app.post('/api/export-collage', async (req, res) => {
         }
 
         if (!bgSharp) {
-            // Fallback: exporta só foto + número
             let pipelineFallback = sharp(photoData, { raw: photoInfo });
 
             if (gridNumber) {
@@ -553,7 +554,6 @@ app.post('/api/export-collage', async (req, res) => {
             bgInfo.width !== photoInfo.width ||
             bgInfo.height !== photoInfo.height
         ) {
-            // Fallback: só foto + número
             let pipelineFallback = sharp(photoData, { raw: photoInfo });
 
             if (gridNumber) {
@@ -621,6 +621,107 @@ app.post('/api/export-collage', async (req, res) => {
         res
             .status(500)
             .json({ message: 'Erro na composição da imagem.' });
+    }
+});
+
+// --- RELATÓRIO DE EXPORTS + CSV ---
+
+function generateExportsReport() {
+    try {
+        const files = fs.readdirSync(EXPORT_DIR)
+            .filter(f => f.match(/\.(jpg|jpeg|png|gif|webp|avif|bmp)$/i));
+
+        if (!files.length) return [];
+
+        const infos = files.map(filename => {
+            const full = path.join(EXPORT_DIR, filename);
+            const stats = fs.statSync(full);
+            return {
+                filename,
+                mtimeMs: stats.mtimeMs,
+                mtimeIso: stats.mtime.toISOString()
+            };
+        }).sort((a, b) => a.mtimeMs - b.mtimeMs);
+
+        const total = infos.length;
+        const firstExportAt = infos[0].mtimeIso;
+        const lastExportAt = infos[total - 1].mtimeIso;
+
+        let avgIntervalMs = 0;
+        if (total > 1) {
+            let sum = 0;
+            for (let i = 1; i < total; i++) {
+                sum += infos[i].mtimeMs - infos[i - 1].mtimeMs;
+            }
+            avgIntervalMs = sum / (total - 1);
+        }
+
+        // Gera CSV simples: filename,timestamp
+        const csvLines = ['filename,timestamp'];
+        infos.forEach(info => {
+            csvLines.push(`${info.filename},${info.mtimeIso}`);
+        });
+        const csvPath = path.join(EXPORT_DIR, 'exports.csv');
+        fs.writeFileSync(csvPath, csvLines.join('\n'), 'utf8');
+
+        return [{
+            folder: 'exports',
+            totalExports: total,
+            firstExportAt,
+            lastExportAt,
+            avgIntervalMs
+        }];
+    } catch (e) {
+        logToClients(`Erro ao gerar relatório de exports: ${e.message}`, 'error');
+        return [];
+    }
+}
+
+app.get('/exports/events', (req, res) => {
+    const summary = generateExportsReport();
+    res.json(summary);
+});
+
+// --- RESET DE EVENTO (estado do mural) ---
+app.post('/api/reset-event', (req, res) => {
+    try {
+        if (fs.existsSync(STATE_FILE)) {
+            fs.unlinkSync(STATE_FILE);
+        }
+        logToClients('🔄 Reset de evento solicitado pelo admin. Estado limpo.', 'system');
+        res.json({ success: true });
+    } catch (e) {
+        logToClients(`Erro ao resetar evento: ${e.message}`, 'error');
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// --- LIMPEZA DE EXPORTS ANTIGOS ---
+app.post('/exports/cleanup', (req, res) => {
+    try {
+        const body = req.body || {};
+        const days = Number.isFinite(body.days) ? body.days : 1;
+        const threshold = Date.now() - days * 24 * 60 * 60 * 1000;
+
+        const files = fs.readdirSync(EXPORT_DIR);
+        let removed = 0;
+
+        files.forEach(f => {
+            const ext = path.extname(f).toLowerCase();
+            if (!ext.match(/\.(jpg|jpeg|png|gif|webp|avif|bmp)$/i)) return;
+            const full = path.join(EXPORT_DIR, f);
+            const stats = fs.statSync(full);
+            if (stats.mtimeMs < threshold) {
+                fs.unlinkSync(full);
+                removed++;
+            }
+        });
+
+        logToClients(`🧹 Cleanup de exports: ${removed} arquivo(s) mais antigos que ${days} dia(s) foram removidos.`, 'system');
+        res.json({ success: true, removed, days });
+    } catch (e) {
+        logToClients(`Erro no cleanup de exports: ${e.message}`, 'error');
+        res.status(500).json({ success: false, error: e.message });
     }
 });
 

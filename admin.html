@@ -127,19 +127,29 @@
 
 <body class="min-h-screen pb-20 selection:bg-indigo-500 selection:text-white">
 
+    <!-- HEADER -->
     <div class="sticky top-0 z-50 bg-slate-900/95 backdrop-blur border-b border-slate-800 p-4 shadow-lg">
         <div class="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
+            <!-- Logo + título + status servidor -->
             <div class="flex items-center gap-3">
-                <!-- LOGO NO HEADER -->
                 <img src="./assets/logos/phygital_logo.avif" alt="Logo Phygital Solutions" class="h-10 w-auto object-contain">
                 <div>
-                    <h1 class="text-xl font-bold text-white">Social Wall <span class="text-indigo-400">Alpha ver.</span>
+                    <h1 class="text-xl font-bold text-white">
+                        Social Wall <span class="text-indigo-400">Alpha ver.</span>
                     </h1>
                     <p class="text-[10px] text-slate-400 uppercase tracking-wider">
                         Painel de Controle Powered by Phygital Solutions
                     </p>
-                </div>
+                    <!-- STATUS DO SERVIDOR DENTRO DO BLOCO -->
+                    <div id="server-status-badge"
+                        class="inline-flex items-center gap-2 px-3 py-1 mt-2 rounded-full text-[10px] font-semibold bg-red-900/60 text-red-200 border border-red-500/60">
+                        <span class="status-dot w-2 h-2 rounded-full bg-red-400"></span>
+                        <span class="status-label">Servidor OFF</span>
+                    </div>
+                    </div>
             </div>
+            
+            <!-- MINI COMPORTAMENTO (GRID + RANDOM) -->
             <div class="glass-panel p-5 rounded-xl">
                 <h3 class="text-slate-300 font-bold mb-4 uppercase text-xs tracking-wider">5. Comportamento</h3>
                 <div class="space-y-4">
@@ -156,6 +166,7 @@
                 </div>
             </div>
 
+            <!-- KPIs -->
             <div class="flex gap-3 text-sm">
                 <div class="bg-slate-800/50 px-4 py-2 rounded-lg border border-slate-700 flex flex-col items-center min-w-[90px]">
                     <span class="text-[10px] text-slate-400 uppercase tracking-wide font-bold">Vagas</span>
@@ -174,6 +185,167 @@
     </div>
 
     <div class="max-w-7xl mx-auto p-6">
+        <!-- WIZARD + SETUP RÁPIDO DE EVENTO -->
+        <div class="glass-panel p-5 rounded-xl border-l-4 border-indigo-500 mb-8">
+            <div class="flex flex-col sm:flex-row justify-between gap-3 mb-4">
+                <div>
+                    <h2 class="text-sm font-bold text-indigo-300 uppercase tracking-wider flex items-center gap-2">
+                        🎛 Setup Rápido do Evento
+                    </h2>
+                    <p class="text-[11px] text-slate-400">
+                        Configure nome, resolução e export em poucos cliques. Os detalhes finos você ajusta nas seções
+                        abaixo.
+                    </p>
+                </div>
+                <div class="text-right text-[11px] text-slate-400">
+                    <p class="uppercase tracking-widest">Evento Atual</p>
+                    <p id="wizard-event-name-preview" class="font-semibold text-slate-100 truncate max-w-xs">
+                        <!-- preenchido via JS -->
+                    </p>
+                </div>
+            </div>
+        
+            <!-- Navegação dos passos -->
+            <div class="flex gap-2 mb-4 text-[10px]">
+                <button id="wizard-step-1-btn"
+                    class="px-3 py-1.5 rounded-lg bg-indigo-600 text-white font-semibold border border-indigo-400">
+                    1. Tela
+                </button>
+                <button id="wizard-step-2-btn"
+                    class="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-200 border border-slate-600">
+                    2. Layout
+                </button>
+                <button id="wizard-step-3-btn"
+                    class="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-200 border border-slate-600">
+                    3. Visual
+                </button>
+                <button id="wizard-step-4-btn"
+                    class="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-200 border border-slate-600">
+                    4. Export
+                </button>
+            </div>
+        
+            <!-- PASSO 1: TELA -->
+            <div id="wizard-step-1" class="wizard-step space-y-4">
+                <div>
+                    <label class="text-[10px] uppercase font-bold text-slate-500 block mb-1">Nome do Evento</label>
+                    <input id="event-name" type="text" class="w-full text-xs" placeholder="Ex: Convenção Nacional 2025">
+                </div>
+                <div>
+                    <label class="text-[10px] uppercase font-bold text-slate-500 block mb-1">Resolução da Tela</label>
+                    <div class="grid grid-cols-3 gap-2 mb-2 text-[10px]">
+                        <button id="screen-preset-1080p"
+                            class="flex-1 px-2 py-1 rounded-lg font-bold uppercase tracking-wider border border-slate-700 bg-slate-900 text-slate-400">
+                            1080p
+                        </button>
+                        <button id="screen-preset-4k"
+                            class="flex-1 px-2 py-1 rounded-lg font-bold uppercase tracking-wider border border-slate-700 bg-slate-900 text-slate-400">
+                            4K
+                        </button>
+                        <button id="screen-preset-custom"
+                            class="flex-1 px-2 py-1 rounded-lg font-bold uppercase tracking-wider border border-slate-700 bg-slate-900 text-slate-400">
+                            Custom
+                        </button>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2 mb-1">
+                        <input id="screen-width" type="number" min="640" class="w-full text-xs text-center"
+                            placeholder="Largura">
+                        <input id="screen-height" type="number" min="480" class="w-full text-xs text-center"
+                            placeholder="Altura">
+                    </div>
+                    <p id="screen-res-summary" class="text-[10px] text-slate-400 mt-1">
+                        Atual: 1920 x 1080
+                    </p>
+                </div>
+            </div>
+        
+            <!-- PASSO 2: LAYOUT -->
+            <div id="wizard-step-2" class="wizard-step hidden space-y-4">
+                <p class="text-[11px] text-slate-300">
+                    Escolha como o mural organiza as fotos. Você pode usar uma
+                    <span class="font-semibold text-indigo-300">quantidade alvo</span>,
+                    deixar o sistema ajustar pelo
+                    <span class="font-semibold text-indigo-300">tamanho da foto</span>
+                    ou controlar manualmente colunas x linhas.
+                </p>
+                <div class="grid grid-cols-3 gap-2 text-[10px]">
+                    <button id="wizard-layout-target-btn"
+                        class="px-2 py-2 rounded-lg border border-slate-700 bg-slate-900 text-slate-300 font-bold uppercase tracking-wider">
+                        🎯 Alvo
+                    </button>
+                    <button id="wizard-layout-autofit-btn"
+                        class="px-2 py-2 rounded-lg border border-slate-700 bg-slate-900 text-slate-300 font-bold uppercase tracking-wider">
+                        📐 Auto
+                    </button>
+                    <button id="wizard-layout-manual-btn"
+                        class="px-2 py-2 rounded-lg border border-slate-700 bg-slate-900 text-slate-300 font-bold uppercase tracking-wider">
+                        🖐️ Manual
+                    </button>
+                </div>
+                <p id="wizard-grid-preview-label" class="text-[11px] text-slate-400 mt-2">
+                    <!-- texto opcional do wizard -->
+                </p>
+            </div>
+        
+            <!-- PASSO 3: VISUAL -->
+            <div id="wizard-step-3" class="wizard-step hidden space-y-3">
+                <p class="text-[11px] text-slate-300">
+                    Ajuste como o mural aparece no telão: opacidade das fotos, fundo e logo.
+                    Os controles completos estão nas seções
+                    <span class="font-semibold text-purple-300">"Aparência & Fundo"</span>
+                    e
+                    <span class="font-semibold text-indigo-300">"Grid & Layout"</span>.
+                </p>
+                <ul class="text-[11px] text-slate-400 list-disc pl-4 space-y-1">
+                    <li>Opacidade atual das fotos é definida pelo slider em "Aparência & Fundo".</li>
+                    <li>Você pode subir o <span class="font-semibold">background</span> e aplicar filtros
+                        (brilho, contraste, blur...)</li>
+                    <li>Logo do cliente e ticker (mensagem rolante) são ajustados em "Branding".</li>
+                </ul>
+            </div>
+        
+            <!-- PASSO 4: EXPORT -->
+            <div id="wizard-step-4" class="wizard-step hidden space-y-4">
+                <div class="grid sm:grid-cols-2 gap-4">
+                    <div class="space-y-2">
+                        <label class="text-[10px] uppercase font-bold text-slate-500 block mb-1">
+                            Pasta base de export
+                        </label>
+                        <input id="export-base-folder" type="text" class="w-full text-xs"
+                            placeholder="Ex: exports/2025-11-29_Evento" />
+                        <p class="text-[10px] text-slate-500">
+                            Essa pasta será usada pelo backend quando configurarmos o export final.
+                        </p>
+                    </div>
+                    <div class="space-y-2">
+                        <label class="text-[10px] uppercase font-bold text-slate-500 block mb-1">
+                            Tamanho & modo do souvenir
+                        </label>
+                        <p id="wizard-export-summary" class="text-[11px] text-slate-200">
+                            <!-- preenchido via JS -->
+                        </p>
+                        <p class="text-[10px] text-slate-500">
+                            Você ajusta largura, altura e se exporta com fundo na seção
+                            <span class="font-semibold text-pink-300">"Export Souvenir"</span>.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        
+            <!-- Navegação inferior do wizard -->
+            <div class="mt-4 flex justify-between items-center">
+                <button id="wizard-prev"
+                    class="px-3 py-1.5 rounded-lg text-[11px] bg-slate-800 text-slate-200 border border-slate-700 disabled:opacity-40 disabled:cursor-not-allowed">
+                    ◀ Anterior
+                </button>
+                <span class="text-[10px] text-slate-500">Use também as seções abaixo para ajustes avançados.</span>
+                <button id="wizard-next"
+                    class="px-3 py-1.5 rounded-lg text-[11px] bg-indigo-600 hover:bg-indigo-500 text-white border border-indigo-400 disabled:opacity-40 disabled:cursor-not-allowed">
+                    Próximo ▶
+                </button>
+            </div>
+        </div>
+
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
 
             <div class="space-y-6">
@@ -225,9 +397,11 @@
                         <label class="text-[10px] uppercase font-bold text-slate-500 block mb-1">Modo de Cálculo</label>
                         <select id="layout-mode" class="w-full bg-slate-800 border-slate-600 font-bold text-indigo-300">
                             <option value="target">🎯 Quantidade Alvo</option>
+                            <option value="fit-all">🧩 Ajustar p/ todas as fotos</option>
                             <option value="auto-fit">📐 Tamanho Fixo (px)</option>
                             <option value="manual">🖐️ Manual</option>
                         </select>
+
                     </div>
                     <div id="group-target"
                         class="mb-4 p-4 bg-indigo-900/10 rounded-lg border border-indigo-500/30 flex justify-between items-center">
@@ -247,6 +421,39 @@
                                 id="gap-value">8px</span></label>
                         <input type="range" id="grid-gap" min="0" max="50" class="w-full accent-indigo-500">
                     </div>
+                    <!-- PREVIEW AO VIVO DO GRID -->
+                    <div class="mt-4">
+                        <label class="text-[10px] uppercase font-bold text-slate-500 block mb-1">
+                            Preview do Grid
+                        </label>
+                        <div class="mt-1 bg-slate-900/60 rounded-lg border border-slate-800 p-2
+                               h-64 md:h-80 lg:h-96 flex items-center justify-center overflow-hidden">
+                            <div id="grid-preview-inner" class="w-full h-full"></div>
+                        </div>
+                        <p id="grid-preview-label" class="text-[10px] text-slate-400 mt-1"></p>
+                    </div>
+                    
+                    </div>
+                    
+                    <!-- PRESETS RÁPIDOS -->
+                    <div class="glass-panel p-5 rounded-xl">
+                        <h3 class="text-emerald-400 font-bold mb-3 uppercase text-xs tracking-wider">Presets Rápidos</h3>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <button id="preset-3x3-sem-fundo"
+                                class="p-3 rounded-lg border border-emerald-500/40 bg-emerald-900/20 text-left text-[11px] hover:bg-emerald-900/40 transition">
+                                <div class="font-semibold text-emerald-200">Evento 1</div>
+                                <div class="text-[10px] text-emerald-100/80">3 x 3 • Sem fundo</div>
+                            </button>
+                            <button id="preset-12x8-com-fundo"
+                                class="p-3 rounded-lg border border-sky-500/40 bg-sky-900/20 text-left text-[11px] hover:bg-sky-900/40 transition">
+                                <div class="font-semibold text-sky-200">Evento 2</div>
+                                <div class="text-[10px] text-sky-100/80">12 x 8 • Fundo 40%</div>
+                            </button>
+                        </div>
+                        <p class="text-[10px] text-slate-500 mt-3">
+                            Os presets ajustam layout e visual automaticamente. Você pode refinar todos os detalhes nas
+                            seções acima.
+                        </p>
                 </div>
 
                 <div class="glass-panel p-5 rounded-xl">
@@ -379,6 +586,73 @@
 
             </div>
         </div>
+        <!-- RELATÓRIO DO EVENTO / EXPORTS -->
+        <div class="glass-panel p-5 rounded-xl border-l-4 border-amber-500 mb-8">
+            <div class="flex flex-col sm:flex-row justify-between gap-3 mb-4">
+                <div>
+                    <h3 class="text-amber-300 font-bold uppercase text-xs tracking-wider mb-1">
+                        7. Relatório do Evento
+                    </h3>
+                    <p class="text-[11px] text-slate-400">
+                        Acompanhe quantos souvenirs já foram gerados e baixe o CSV para análise.
+                    </p>
+                </div>
+                <div class="flex flex-wrap gap-2 text-[10px]">
+                    <button id="event-report-refresh"
+                        class="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-200 border border-slate-600 hover:bg-slate-700 transition">
+                        🔄 Atualizar
+                    </button>
+                    <button id="download-csv-btn"
+                        class="px-3 py-1.5 rounded-lg bg-emerald-600 text-white border border-emerald-400 hover:bg-emerald-500 font-semibold transition">
+                        ⬇ Baixar CSV
+                    </button>
+                    <button id="cleanup-exports-btn"
+                        class="px-3 py-1.5 rounded-lg bg-sky-700 text-white border border-sky-500 hover:bg-sky-600 font-semibold transition">
+                        🧹 Limpar exports antigos
+                    </button>
+                    <button id="reset-event-btn"
+                        class="px-3 py-1.5 rounded-lg bg-red-700 text-white border border-red-500 hover:bg-red-600 font-semibold transition">
+                        ⚠ Resetar evento
+                    </button>
+                </div>
+            </div>
+        
+            <div id="event-report-content" class="grid grid-cols-2 md:grid-cols-4 gap-3 text-[11px]">
+                <div class="bg-slate-900/60 border border-slate-700 rounded-lg p-3">
+                    <div class="text-slate-400 uppercase tracking-wider text-[9px] mb-1">
+                        Total Exportado
+                    </div>
+                    <div id="event-report-total" class="text-xl font-bold text-amber-300">0</div>
+                </div>
+                <div class="bg-slate-900/60 border border-slate-700 rounded-lg p-3">
+                    <div class="text-slate-400 uppercase tracking-wider text-[9px] mb-1">
+                        Primeiro Export
+                    </div>
+                    <div id="event-report-first" class="text-[11px] text-slate-200 truncate">--</div>
+                </div>
+                <div class="bg-slate-900/60 border border-slate-700 rounded-lg p-3">
+                    <div class="text-slate-400 uppercase tracking-wider text-[9px] mb-1">
+                        Último Export
+                    </div>
+                    <div id="event-report-last" class="text-[11px] text-slate-200 truncate">--</div>
+                </div>
+                <div class="bg-slate-900/60 border border-slate-700 rounded-lg p-3">
+                    <div class="text-slate-400 uppercase tracking-wider text-[9px] mb-1">
+                        Intervalo Médio
+                    </div>
+                    <div id="event-report-avg" class="text-[11px] text-slate-200 truncate">--</div>
+                    <p class="text-[9px] text-slate-500 mt-1">
+                        Entre exports, em ms (aprox.).
+                    </p>
+                </div>
+            </div>
+        
+            <p id="event-report-empty" class="text-[10px] text-slate-500 mt-3 hidden">
+                Nenhum souvenir exportado ainda. Assim que as fotos forem exibidas no telão, os dados aparecem aqui.
+            </p>
+        </div>
+        
+        <!-- GALERIA / GERENCIADOR -->
         <div class="glass-panel p-6 rounded-xl border-t-4 border-slate-600">
             <div class="flex flex-col sm:flex-row justify-between items-center mb-4 gap-4">
                 <h2 class="text-lg font-bold text-white flex items-center gap-2">🖼️ Gerenciador</h2>
