@@ -427,13 +427,28 @@ app.post('/api/export-collage', async (req, res) => {
 
     let alpha = opacity;
 
-    if (typeof alpha === 'string') alpha = parseFloat(alpha);
-    if (Number.isNaN(alpha)) alpha = 0.4;
-    if (alpha > 1 && alpha <= 100) alpha = alpha / 100;
-    if (alpha <= 0) alpha = 0.4;
+    // pode vir como string do JSON
+    if (typeof alpha === 'string') {
+        alpha = parseFloat(alpha);
+    }
+
+    // se vier quebrado, default = 0.4 (igual hoje)
+    if (!Number.isFinite(alpha)) {
+        alpha = 0.4;
+    }
+
+    // se vier em porcentagem (0–100), converte pra 0–1
+    if (alpha > 1) {
+        alpha = alpha / 100;
+    }
+
+    // garante que fique entre 0 e 1
+    if (alpha < 0) alpha = 0;
     if (alpha > 1) alpha = 1;
 
-    alpha = Math.min(alpha, 0.6);
+    // DEBUG opcional:
+    // console.log('[EXPORT] opacity recebido:', opacity, '→ alpha normalizado:', alpha);
+
 
     try {
         const photoPath = path.join(PROCESSED_IMAGES_DIR, photoId);
