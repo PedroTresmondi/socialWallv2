@@ -14,10 +14,19 @@ import {
 } from './shared.js';
 
 let config = loadConfig();
-// garante que o novo campo existe
+
+// garante que os novos campos existem
 config.showGridNumber = config.showGridNumber ?? false;
+config.eventName = config.eventName || '';
+config.screenWidth = config.screenWidth || 1920;
+config.screenHeight = config.screenHeight || 1080;
+config.exportBaseFolder = config.exportBaseFolder || '';
+config.adminMode = config.adminMode || 'setup';
 
 let currentFilter = 'queue'; // Estado inicial da aba (queue, wall, removed)
+let wizardCurrentStep = 1;   // passo atual do wizard
+let lastImageIds = new Set(); // para saber quais fotos são novas
+let errorCount = 0;          // contador de erros no log
 
 // --- ELEMENTOS ---
 const getEls = () => ({
@@ -89,6 +98,9 @@ const getEls = () => ({
     localSettings: document.getElementById('local-settings'),
 
     statusLog: document.getElementById('status-log'),
+    statusLastError: document.getElementById('status-last-error'),
+    statusErrorCounter: document.getElementById('status-error-counter'),
+    statusLogClearBtn: document.getElementById('status-log-clear'),
     gallery: document.getElementById('admin-gallery-container'),
     clearHiddenBtn: document.getElementById('clear-hidden-btn'),
     refreshBtn: document.getElementById('refresh-gallery'),
@@ -120,7 +132,40 @@ const getEls = () => ({
     resetEventBtn: document.getElementById('reset-event-btn'),
 
     // badge do servidor
-    serverStatusBadge: document.getElementById('server-status-badge')
+    serverStatusBadge: document.getElementById('server-status-badge'),
+
+    // --- Wizard (Setup rápido) ---
+    wizardStep1Btn: document.getElementById('wizard-step-1-btn'),
+    wizardStep2Btn: document.getElementById('wizard-step-2-btn'),
+    wizardStep3Btn: document.getElementById('wizard-step-3-btn'),
+    wizardStep4Btn: document.getElementById('wizard-step-4-btn'),
+    wizardPrev: document.getElementById('wizard-prev'),
+    wizardNext: document.getElementById('wizard-next'),
+    wizardEventNameInput: document.getElementById('event-name'),
+    wizardEventNamePreview: document.getElementById('wizard-event-name-preview'),
+    screenPreset1080p: document.getElementById('screen-preset-1080p'),
+    screenPreset4k: document.getElementById('screen-preset-4k'),
+    screenPresetCustom: document.getElementById('screen-preset-custom'),
+    screenWidth: document.getElementById('screen-width'),
+    screenHeight: document.getElementById('screen-height'),
+    screenResSummary: document.getElementById('screen-res-summary'),
+    wizardLayoutTargetBtn: document.getElementById('wizard-layout-target-btn'),
+    wizardLayoutAutoFitBtn: document.getElementById('wizard-layout-autofit-btn'),
+    wizardLayoutManualBtn: document.getElementById('wizard-layout-manual-btn'),
+    wizardLayoutLabel: document.getElementById('wizard-grid-preview-label'),
+    wizardExportBaseFolder: document.getElementById('export-base-folder'),
+    wizardExportSummary: document.getElementById('wizard-export-summary'),
+
+    // Navegação de seções
+    sectionNavBtns: document.querySelectorAll('.section-nav-btn'),
+
+    // Modo setup / operação
+    modeSetupBtn: document.getElementById('mode-setup-btn'),
+    modeLiveBtn: document.getElementById('mode-live-btn'),
+
+    // Backup de configuração
+    configDownloadBtn: document.getElementById('config-download-btn'),
+    configUploadInput: document.getElementById('config-upload-input')
 });
 
 function showToast(msg, type = 'success') {
@@ -163,12 +208,29 @@ setInterval(() => {
     }
 }, 1000);
 
+// --- CHANGE GENÉRICO + VALIDAÇÕES AMIGÁVEIS ---
 const change = (key, val, showMsg = false) => {
     config[key] = val;
     if (key === 'targetCount' || key === 'layoutMode') calculateEstimatedGrid();
     saveConfig(config);
     updateUI();
     updateStats();
+
+    // validações simples
+    if (key === 'exportWidth' || key === 'exportHeight') {
+        if (val && val < 100) {
+            showToast('Para souvenirs, use pelo menos ~300px para boa qualidade.', 'error');
+        }
+    }
+
+    if (['cols', 'rows', 'targetCount', 'layoutMode'].includes(key)) {
+        const cap = (config.cols || 0) * (config.rows || 0);
+        const target = config.targetCount || 0;
+        if (cap && target && cap < target) {
+            showToast('Capacidade do grid menor que a quantidade alvo. Algumas fotos ficarão na fila.', 'error');
+        }
+    }
+
     if (showMsg) showToast("Salvo");
 };
 
@@ -305,8 +367,6 @@ function updateGridPreview() {
     label.textContent = `${cols} colunas x ${rows} linhas • Slots: ${totalSlots} • Ocupados: ${usedCount} • Livres: ${freeCount}`;
 }
 
-
-
 function updateStats(overrideTotal = null) {
     const els = getEls();
     const gs = JSON.parse(localStorage.getItem(GRID_STATE_KEY) || '[]');
@@ -336,6 +396,9 @@ function updateStats(overrideTotal = null) {
 function updateUI() {
     const els = getEls();
 
+    // aplica modo no body
+    document.body.dataset.mode = config.adminMode || 'setup';
+
     // Sync básicos
     if (els.targetCount) els.targetCount.value = config.targetCount || 20;
     if (els.layoutMode) els.layoutMode.value = config.layoutMode || 'target';
@@ -362,8 +425,17 @@ function updateUI() {
 
     if (els.animType) els.animType.value = config.animType;
     if (els.animDur) els.animDur.value = config.animDuration;
-    if (els.processInterval) els.processInterval.value = (config.processInterval || 3000) / 1000;
-    if (els.procVal) els.procVal.textContent = ((config.processInterval || 3000) / 1000) + 's';
+
+    const processMs = (config.processInterval || 3000);
+    const processSec = processMs / 1000;
+    if (els.processInterval) els.processInterval.value = processSec;
+    if (els.procVal) {
+        let labelExtra = '';
+        if (processSec <= 2) labelExtra = ' (rápido)';
+        else if (processSec <= 5) labelExtra = ' (normal)';
+        else labelExtra = ' (lento / seguro)';
+        els.procVal.textContent = `${processSec}s${labelExtra}`;
+    }
 
     if (els.randCheck) els.randCheck.checked = config.randomPosition;
     if (els.persistCheck) els.persistCheck.checked = config.persistGrid;
@@ -407,7 +479,7 @@ function updateUI() {
         if (els.modeLocalBtn)
             els.modeLocalBtn.className = "flex-1 py-2 text-xs font-bold rounded transition bg-blue-600 text-white";
         if (els.modeDropboxBtn)
-            els.modeDropboxBtn.className = "flex-1 py-2 text-xs font-bold rounded transition text-slate-400 hover:text-white";
+            els.modeDropboxBtn.className = "flex-1 py-2 text-xs font-bold rounded transition text-slate-400 hover:bg-slate-800 hover:text-white";
         els.localSettings?.classList.remove('hidden');
         els.dropboxSettings?.classList.add('hidden');
     }
@@ -431,8 +503,96 @@ function updateUI() {
             btn.className = "tab-btn inactive px-4 py-1 text-xs rounded transition text-slate-400 hover:bg-slate-800";
     });
 
+    // --- Wizard: sincroniza campos com config ---
+    if (els.wizardEventNameInput) els.wizardEventNameInput.value = config.eventName || '';
+    if (els.wizardEventNamePreview) {
+        els.wizardEventNamePreview.textContent = config.eventName || 'Sem nome definido';
+    }
+
+    if (els.screenWidth) els.screenWidth.value = config.screenWidth || 1920;
+    if (els.screenHeight) els.screenHeight.value = config.screenHeight || 1080;
+    if (els.screenResSummary) {
+        const w = config.screenWidth || 1920;
+        const h = config.screenHeight || 1080;
+        els.screenResSummary.textContent = `Atual: ${w} x ${h}`;
+    }
+
+    if (els.wizardLayoutLabel) {
+        let label = '';
+        if (config.layoutMode === 'target') {
+            label = `Modo: Quantidade alvo • ${config.targetCount || 20} fotos`;
+        } else if (config.layoutMode === 'auto-fit') {
+            label = `Modo: Tamanho fixo • ${config.photoWidth || '-'} x ${config.photoHeight || '-'} px`;
+        } else {
+            label = `Modo: Manual • ${config.cols || '-'} colunas × ${config.rows || '-'} linhas`;
+        }
+        els.wizardLayoutLabel.textContent = label;
+    }
+
+    if (els.wizardExportBaseFolder) {
+        els.wizardExportBaseFolder.value = config.exportBaseFolder || '';
+    }
+    if (els.wizardExportSummary) {
+        const ew = config.exportWidth || 300;
+        const eh = config.exportHeight || 300;
+        const withBg = config.exportWithBackground ?? true;
+        els.wizardExportSummary.textContent =
+            `${ew} x ${eh}px • ${withBg ? 'com background' : 'sem background'}`;
+    }
+
+    // Wizard layout buttons (Alvo / Auto / Manual)
+    if (els.wizardLayoutTargetBtn && els.wizardLayoutAutoFitBtn && els.wizardLayoutManualBtn) {
+        const active = 'px-2 py-2 rounded-lg border border-slate-700 bg-indigo-600 text-white font-bold uppercase tracking-wider';
+        const inactive = 'px-2 py-2 rounded-lg border border-slate-700 bg-slate-900 text-slate-300 font-bold uppercase tracking-wider';
+        els.wizardLayoutTargetBtn.className = config.layoutMode === 'target' ? active : inactive;
+        els.wizardLayoutAutoFitBtn.className = config.layoutMode === 'auto-fit' ? active : inactive;
+        els.wizardLayoutManualBtn.className = config.layoutMode === 'manual' ? active : inactive;
+    }
+
+    // Sincroniza clones de "Posição Aleatória" (header + seção comportamento)
+    document.querySelectorAll('input#random-position').forEach(el => {
+        el.checked = !!config.randomPosition;
+    });
+
+    // Modo Setup / Live
+    if (els.modeSetupBtn && els.modeLiveBtn) {
+        const activeCls = "px-3 py-1 rounded-full font-semibold bg-indigo-600 text-white border border-indigo-400";
+        const inactiveCls = "px-3 py-1 rounded-full font-semibold bg-slate-800 text-slate-200 border border-slate-600";
+        const mode = config.adminMode || 'setup';
+        els.modeSetupBtn.className = mode === 'setup' ? activeCls : inactiveCls;
+        els.modeLiveBtn.className = mode === 'live' ? activeCls : inactiveCls;
+    }
+
     renderGridPreview();
     updateGridPreview();
+}
+
+// Atualiza UI do wizard (passos + botões Anterior/Próximo)
+function updateWizardStepUI() {
+    const els = getEls();
+    const steps = [1, 2, 3, 4];
+
+    steps.forEach(n => {
+        const content = document.getElementById(`wizard-step-${n}`);
+        const btn = els[`wizardStep${n}Btn`];
+        const isActive = (n === wizardCurrentStep);
+
+        if (content) {
+            if (isActive) content.classList.remove('hidden');
+            else content.classList.add('hidden');
+        }
+
+        if (btn) {
+            btn.className =
+                'px-3 py-1.5 rounded-lg font-semibold border text-[10px] ' +
+                (isActive
+                    ? 'bg-indigo-600 text-white border-indigo-400'
+                    : 'bg-slate-800 text-slate-200 border-slate-600');
+        }
+    });
+
+    if (els.wizardPrev) els.wizardPrev.disabled = wizardCurrentStep === 1;
+    if (els.wizardNext) els.wizardNext.disabled = wizardCurrentStep === 4;
 }
 
 function setupListeners() {
@@ -440,7 +600,11 @@ function setupListeners() {
 
     // layout
     if (els.layoutMode) els.layoutMode.addEventListener('change', e => change('layoutMode', e.target.value, true));
-    const numBind = (el, key) => el?.addEventListener('input', e => change(key, parseInt(e.target.value)));
+    const numBind = (el, key) => el?.addEventListener('input', e => {
+        const v = parseInt(e.target.value || '0', 10);
+        if (Number.isNaN(v)) return;
+        change(key, v);
+    });
     numBind(els.targetCount, 'targetCount');
     numBind(els.gridCols, 'cols');
     numBind(els.gridRows, 'rows');
@@ -463,12 +627,18 @@ function setupListeners() {
     if (els.animType)
         els.animType.addEventListener('change', e => change('animType', e.target.value));
     if (els.animDur)
-        els.animDur.addEventListener('input', e => change('animDuration', parseInt(e.target.value)));
+        els.animDur.addEventListener('input', e => {
+            const v = parseInt(e.target.value || '0', 10);
+            if (!Number.isNaN(v)) change('animDuration', v);
+        });
     if (els.processInterval)
-        els.processInterval.addEventListener('input', e => change('processInterval', parseFloat(e.target.value) * 1000));
+        els.processInterval.addEventListener('input', e => {
+            const v = parseFloat(e.target.value || '0');
+            if (!Number.isNaN(v)) change('processInterval', v * 1000);
+        });
 
     const chkBind = (el, key) => el?.addEventListener('change', e => change(key, e.target.checked, true));
-    chkBind(els.randCheck, 'randomPosition');
+    // randCheck será tratado separadamente para sincronizar clones
     chkBind(els.persistCheck, 'persistGrid');
     chkBind(els.removalCheck, 'removalMode');
     chkBind(els.heroCheck, 'heroEnabled');
@@ -529,6 +699,178 @@ function setupListeners() {
     if (els.tabWall) els.tabWall.addEventListener('click', () => setTab('wall'));
     if (els.tabRemoved) els.tabRemoved.addEventListener('click', () => setTab('removed'));
 
+    // --- Wizard: Setup rápido ---
+    if (els.wizardEventNameInput)
+        els.wizardEventNameInput.addEventListener('input', e => change('eventName', e.target.value));
+
+    if (els.screenWidth)
+        els.screenWidth.addEventListener('input', e => change('screenWidth', parseInt(e.target.value || '0') || 0));
+
+    if (els.screenHeight)
+        els.screenHeight.addEventListener('input', e => change('screenHeight', parseInt(e.target.value || '0') || 0));
+
+    if (els.screenPreset1080p)
+        els.screenPreset1080p.addEventListener('click', () => {
+            change('screenWidth', 1920);
+            change('screenHeight', 1080, true);
+        });
+
+    if (els.screenPreset4k)
+        els.screenPreset4k.addEventListener('click', () => {
+            change('screenWidth', 3840);
+            change('screenHeight', 2160, true);
+        });
+
+    if (els.screenPresetCustom)
+        els.screenPresetCustom.addEventListener('click', () => {
+            const w = parseInt(els.screenWidth?.value || '0') || 0;
+            const h = parseInt(els.screenHeight?.value || '0') || 0;
+            if (!w || !h) {
+                showToast('Preencha largura e altura personalizadas.', 'error');
+            } else {
+                change('screenWidth', w);
+                change('screenHeight', h, true);
+            }
+        });
+
+    if (els.wizardLayoutTargetBtn)
+        els.wizardLayoutTargetBtn.addEventListener('click', () => change('layoutMode', 'target', true));
+    if (els.wizardLayoutAutoFitBtn)
+        els.wizardLayoutAutoFitBtn.addEventListener('click', () => change('layoutMode', 'auto-fit', true));
+    if (els.wizardLayoutManualBtn)
+        els.wizardLayoutManualBtn.addEventListener('click', () => change('layoutMode', 'manual', true));
+
+    if (els.wizardExportBaseFolder)
+        els.wizardExportBaseFolder.addEventListener('input', e => change('exportBaseFolder', e.target.value));
+
+    // Navegação do wizard (topo)
+    const goToStep = (step) => {
+        wizardCurrentStep = Math.min(4, Math.max(1, step));
+        updateWizardStepUI();
+    };
+    if (els.wizardStep1Btn) els.wizardStep1Btn.addEventListener('click', () => goToStep(1));
+    if (els.wizardStep2Btn) els.wizardStep2Btn.addEventListener('click', () => goToStep(2));
+    if (els.wizardStep3Btn) els.wizardStep3Btn.addEventListener('click', () => goToStep(3));
+    if (els.wizardStep4Btn) els.wizardStep4Btn.addEventListener('click', () => goToStep(4));
+
+    if (els.wizardPrev)
+        els.wizardPrev.addEventListener('click', () => goToStep(wizardCurrentStep - 1));
+    if (els.wizardNext)
+        els.wizardNext.addEventListener('click', () => goToStep(wizardCurrentStep + 1));
+
+    // Sincroniza controles duplicados de "Posição Aleatória" (header + seção comportamento)
+    const randChecks = document.querySelectorAll('input#random-position');
+    if (randChecks.length > 0) {
+        randChecks.forEach(chk => {
+            chk.addEventListener('change', (e) => {
+                const checked = e.target.checked;
+                change('randomPosition', checked, true);
+                randChecks.forEach(other => {
+                    if (other !== e.target) other.checked = checked;
+                });
+            });
+        });
+    }
+
+    // Navegação de seções (mini-menu)
+    if (els.sectionNavBtns && els.sectionNavBtns.forEach) {
+        Array.from(els.sectionNavBtns).forEach(btn => {
+            btn.addEventListener('click', () => {
+                const targetSel = btn.getAttribute('data-target');
+                if (!targetSel) return;
+                const target = document.querySelector(targetSel);
+                if (!target) return;
+                const headerOffset = 80;
+                const rect = target.getBoundingClientRect();
+                const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+                window.scrollTo({
+                    top: rect.top + scrollTop - headerOffset,
+                    behavior: 'smooth'
+                });
+            });
+        });
+    }
+
+    // Modo Setup / Operação
+    if (els.modeSetupBtn)
+        els.modeSetupBtn.addEventListener('click', () => {
+            config.adminMode = 'setup';
+            saveConfig(config);
+            updateUI();
+            showToast('Modo Setup ativado');
+        });
+
+    if (els.modeLiveBtn)
+        els.modeLiveBtn.addEventListener('click', () => {
+            config.adminMode = 'live';
+            saveConfig(config);
+            updateUI();
+            showToast('Modo Operação ativado');
+        });
+
+    // Backup de configuração
+    if (els.configDownloadBtn)
+        els.configDownloadBtn.addEventListener('click', () => {
+            try {
+                const dataStr = JSON.stringify(config, null, 2);
+                const blob = new Blob([dataStr], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'socialwall-config.json';
+                document.body.appendChild(a);
+                a.click();
+                setTimeout(() => {
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                }, 0);
+                showToast('Configuração exportada.');
+            } catch {
+                showToast('Erro ao gerar arquivo de configuração.', 'error');
+            }
+        });
+
+    if (els.configUploadInput)
+        els.configUploadInput.addEventListener('change', (e) => {
+            const file = e.target.files && e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                try {
+                    const txt = ev.target.result;
+                    const parsed = JSON.parse(txt);
+                    if (!parsed || typeof parsed !== 'object') {
+                        showToast('Arquivo inválido.', 'error');
+                        return;
+                    }
+                    // merge gentil: preserva chaves desconhecidas atuais também
+                    config = { ...config, ...parsed };
+                    saveConfig(config);
+                    updateUI();
+                    updateStats();
+                    showToast('Configuração aplicada com sucesso.');
+                } catch {
+                    showToast('Erro ao ler config.json. Verifique o arquivo.', 'error');
+                } finally {
+                    e.target.value = '';
+                }
+            };
+            reader.readAsText(file, 'utf-8');
+        });
+
+    // Limpar log
+    if (els.statusLogClearBtn)
+        els.statusLogClearBtn.addEventListener('click', () => {
+            const log = els.statusLog;
+            if (log) log.innerHTML = '';
+            errorCount = 0;
+            if (els.statusErrorCounter) els.statusErrorCounter.textContent = 'Erros: 0';
+            if (els.statusLastError) {
+                els.statusLastError.textContent = '';
+                els.statusLastError.classList.add('hidden');
+            }
+        });
+
     // Relatório de evento
     if (els.eventReportRefresh)
         els.eventReportRefresh.addEventListener('click', () => {
@@ -542,7 +884,8 @@ function setupListeners() {
 
     if (els.cleanupExportsBtn)
         els.cleanupExportsBtn.addEventListener('click', async () => {
-            if (!confirm('Remover exports antigos (mais de 1 dia)?')) return;
+            if (!confirm('Remover exports antigos (mais de 1 dia)?\n\nIsso NÃO remove as fotos originais, apenas os arquivos de souvenir já gerados.'))
+                return;
             try {
                 const res = await fetch('http://localhost:3000/exports/cleanup', {
                     method: 'POST',
@@ -563,7 +906,9 @@ function setupListeners() {
 
     if (els.resetEventBtn)
         els.resetEventBtn.addEventListener('click', async () => {
-            if (!confirm('Tem certeza que deseja resetar o evento? Isso limpa layout e bloqueios locais.')) return;
+            if (!confirm(
+                'Tem certeza que deseja resetar o evento?\n\nIsso irá:\n• Limpar layout atual (cols/rows, gaps etc.)\n• Limpar estado local do grid\n• Limpar bloqueios locais (lixeira)\n\nAs fotos originais e exports já gerados NÃO serão apagados.'
+            )) return;
             try {
                 const res = await fetch('http://localhost:3000/api/reset-event', {
                     method: 'POST'
@@ -587,7 +932,8 @@ function setupListeners() {
 
 // CORREÇÃO: Usando a rota /events para SSE
 function initStatusMonitor() {
-    const el = document.getElementById('status-log');
+    const els = getEls();
+    const el = els.statusLog;
     if (!el) return;
 
     const es = new EventSource('http://localhost:3000/events');
@@ -608,6 +954,16 @@ function initStatusMonitor() {
         div.innerText = `[${d.time}] ${d.msg}`;
         el.appendChild(div);
         el.scrollTop = el.scrollHeight;
+
+        if (d.type === 'error') {
+            errorCount++;
+            const els2 = getEls();
+            if (els2.statusErrorCounter) els2.statusErrorCounter.textContent = `Erros: ${errorCount}`;
+            if (els2.statusLastError) {
+                els2.statusLastError.textContent = `[${d.time}] ${d.msg}`;
+                els2.statusLastError.classList.remove('hidden');
+            }
+        }
     };
 }
 
@@ -629,13 +985,35 @@ async function fetchGallery() {
     try {
         const res = await fetch(url);
         const images = await res.json();
-        renderGallery(images);
+
+        // ordenação suave se tiver createdAt
+        if (Array.isArray(images)) {
+            images.sort((a, b) => {
+                const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+                const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+                return ta - tb;
+            });
+        }
+
+        // identifica novas imagens
+        const newIds = [];
+        if (Array.isArray(images)) {
+            for (const img of images) {
+                if (!img || !img.id) continue;
+                if (!lastImageIds.has(img.id)) {
+                    newIds.push(img.id);
+                }
+            }
+            lastImageIds = new Set(images.filter(i => i && i.id).map(i => i.id));
+        }
+
+        renderGallery(images, newIds);
         updateStats(images.length);
     } catch (e) { }
 }
 
 // --- RENDERIZADOR DA GALERIA COM FILTROS E NÚMERO DO GRID ---
-function renderGallery(images) {
+function renderGallery(images, newIds = []) {
     const els = getEls(); if (!els.gallery) return;
     const gs = JSON.parse(localStorage.getItem(GRID_STATE_KEY) || '[]');
     const usedIds = new Set(gs.filter(id => id));
@@ -648,6 +1026,7 @@ function renderGallery(images) {
         }
     });
     const showGridNumbers = config.showGridNumber === true;
+    const newIdsSet = new Set(newIds || []);
 
     // FILTRA A LISTA BASEADA NA ABA ATIVA
     let displayImages = [];
@@ -686,8 +1065,11 @@ function renderGallery(images) {
         else if (isHidden) badge = '<span class="absolute top-1 left-1 bg-red-900 text-white text-[9px] px-1.5 py-0.5 rounded font-bold shadow-sm z-10">LIXEIRA</span>';
         else badge = '<span class="absolute top-1 left-1 bg-blue-600 text-white text-[9px] px-1.5 py-0.5 rounded font-bold shadow-sm z-10">FILA</span>';
 
+        const isNew = newIdsSet.has(img.id);
+        const extraClass = isNew ? 'card-new' : '';
+
         const div = document.createElement('div');
-        div.className = `aspect-square bg-slate-800 rounded-lg relative overflow-hidden group border transition-all duration-200 ${border}`;
+        div.className = `aspect-square bg-slate-800 rounded-lg relative overflow-hidden group border transition-all duration-200 ${border} ${extraClass}`;
         div.innerHTML = `
       ${badge}
       ${gridNumberDisplay}
@@ -811,9 +1193,12 @@ async function bootAdmin() {
     await restoreStateFromServer();
     config = loadConfig();
 
+    document.body.dataset.mode = config.adminMode || 'setup';
+
     initStatusMonitor();
     updateUI();
     setupListeners();
+    updateWizardStepUI();
     setInterval(fetchGallery, 3000);
     fetchGallery();
 

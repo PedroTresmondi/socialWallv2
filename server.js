@@ -394,7 +394,7 @@ app.delete('/api/images/:filename', (req, res) => {
     }
 });
 
-// **ROTA DE EXPORTAÇÃO DE COLAGEM (SOUVENIR) - BLEND MANUAL + NÚMERO**
+// **ROTA DE EXPORTAÇÃO DE COLAGEM (SOUVENIR) - BLEND MANUAL + NÚMERO + FILTROS BG**
 app.post('/api/export-collage', async (req, res) => {
     const {
         photoId,
@@ -402,7 +402,8 @@ app.post('/api/export-collage', async (req, res) => {
         tile,
         exportSize,
         opacity,
-        gridNumber: rawGridNumber
+        gridNumber: rawGridNumber,
+        bgFilters    // 🔽 NOVO: filtros vindos do main.js
     } = req.body;
 
     if (!photoId || !tile || !exportSize) {
@@ -446,9 +447,16 @@ app.post('/api/export-collage', async (req, res) => {
     if (alpha < 0) alpha = 0;
     if (alpha > 1) alpha = 1;
 
-    // DEBUG opcional:
-    // console.log('[EXPORT] opacity recebido:', opacity, '→ alpha normalizado:', alpha);
+    // --- NORMALIZA FILTROS DE BG ---
+    const brightnessPct = bgFilters?.brightness ?? 100; // 100 = neutro
+    const contrastPct = bgFilters?.contrast ?? 100;
+    const saturatePct = bgFilters?.saturate ?? 100;
+    const blurPx = bgFilters?.blur ?? 0;
 
+    const brightness = brightnessPct / 100; // sharp.modulate: 1 = 100%
+    const saturation = saturatePct / 100;
+    const contrast = contrastPct / 100; // vamos aproximar contraste com linear()
+    const blurSigma = blurPx > 0 ? blurPx / 2 : 0; // aproximação px -> sigma
 
     try {
         const photoPath = path.join(PROCESSED_IMAGES_DIR, photoId);
@@ -553,7 +561,8 @@ app.post('/api/export-collage', async (req, res) => {
         const extractHeight =
             rowClamped === rows - 1 ? bgHeight - extractTop : tileHeight;
 
-        const { data: bgData, info: bgInfo } = await bgSharp
+        // --- APLICA FILTROS NO TILE DE BG ANTES DE IR PARA RAW ---
+        let bgTileSharp = bgSharp
             .extract({
                 left: extractLeft,
                 top: extractTop,
@@ -561,7 +570,27 @@ app.post('/api/export-collage', async (req, res) => {
                 height: extractHeight
             })
             .resize(targetW, targetH, { fit: 'cover' })
-            .removeAlpha()
+            .removeAlpha();
+
+        // modulate: brilho e saturação
+        bgTileSharp = bgTileSharp.modulate({
+            brightness,
+            saturation
+        });
+
+        // contraste aproximado
+        if (contrast !== 1) {
+            // linear(a, b): out = in * a + b
+            // b = 128*(1-a) p/ manter média aproximada
+            bgTileSharp = bgTileSharp.linear(contrast, 128 * (1 - contrast));
+        }
+
+        // blur, se houver
+        if (blurSigma > 0) {
+            bgTileSharp = bgTileSharp.blur(blurSigma);
+        }
+
+        const { data: bgData, info: bgInfo } = await bgTileSharp
             .raw()
             .toBuffer({ resolveWithObject: true });
 
@@ -594,7 +623,7 @@ app.post('/api/export-collage', async (req, res) => {
             });
         }
 
-        // --- BLEND MANUAL FOTO + BACKGROUND ---
+        // --- BLEND MANUAL FOTO + BACKGROUND (já filtrado) ---
         const length = bgData.length;
         const out = Buffer.alloc(length);
         const invAlpha = 1 - alpha;

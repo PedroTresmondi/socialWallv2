@@ -53,18 +53,10 @@ export const defaultConfig = {
     exportEnabled: false,
     exportWidth: 300,
     exportHeight: 300,
-    exportWithBackground: true,     // se false, exporta só a foto
-    exportBaseFolder: 'exports'     // pasta base para export (usada no backend depois)
+    exportWithBackground: true,
+    exportBaseFolder: 'exports'
 };
 
-/**
- * Cálculo "inteligente" de grid baseado em:
- * - target (quantidade de fotos alvo)
- * - aspectRatio da tela (largura / altura)
- *
- * Retorna objeto:
- * { rows, cols, cells, leftover }
- */
 export function computeGridFromTarget(target, aspectRatio = 16 / 9) {
     const t = Math.max(1, Math.floor(target || 1));
     const ar = aspectRatio > 0 ? aspectRatio : 16 / 9;

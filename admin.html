@@ -17,6 +17,7 @@
             background-color: #0f172a;
             color: #f8fafc;
             font-family: 'Inter', sans-serif;
+            scroll-behavior: smooth;
         }
 
         ::-webkit-scrollbar {
@@ -122,10 +123,30 @@
                 opacity: 1;
             }
         }
+
+        /* Modo operação vs setup */
+        body[data-mode="live"] .setup-only {
+            display: none !important;
+        }
+
+        /* Destaque de cards novos na galeria */
+        @keyframes pulseNew {
+            0% {
+                box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.7);
+            }
+
+            100% {
+                box-shadow: 0 0 0 14px rgba(56, 189, 248, 0);
+            }
+        }
+
+        .card-new {
+            animation: pulseNew 1.5s ease-out 2;
+        }
     </style>
 </head>
 
-<body class="min-h-screen pb-20 selection:bg-indigo-500 selection:text-white">
+<body class="min-h-screen pb-20 selection:bg-indigo-500 selection:text-white" data-mode="setup">
 
     <!-- HEADER -->
     <div class="sticky top-0 z-50 bg-slate-900/95 backdrop-blur border-b border-slate-800 p-4 shadow-lg">
@@ -146,12 +167,12 @@
                         <span class="status-dot w-2 h-2 rounded-full bg-red-400"></span>
                         <span class="status-label">Servidor OFF</span>
                     </div>
-                    </div>
+                </div>
             </div>
-            
+
             <!-- MINI COMPORTAMENTO (GRID + RANDOM) -->
-            <div class="glass-panel p-5 rounded-xl">
-                <h3 class="text-slate-300 font-bold mb-4 uppercase text-xs tracking-wider">5. Comportamento</h3>
+            <div class="glass-panel p-5 rounded-xl setup-only">
+                <h3 class="text-slate-300 font-bold mb-4 uppercase text-xs tracking-wider">Mini Comportamento</h3>
                 <div class="space-y-4">
                     <div class="space-y-2 pt-2 border-t border-slate-700/50 mt-4">
                         <label class="flex justify-between items-center cursor-pointer">
@@ -166,27 +187,71 @@
                 </div>
             </div>
 
-            <!-- KPIs -->
-            <div class="flex gap-3 text-sm">
-                <div class="bg-slate-800/50 px-4 py-2 rounded-lg border border-slate-700 flex flex-col items-center min-w-[90px]">
-                    <span class="text-[10px] text-slate-400 uppercase tracking-wide font-bold">Vagas</span>
-                    <span id="slots-free" class="font-bold text-2xl text-green-400">0</span>
+            <!-- KPIs + Modo -->
+            <div class="flex flex-col items-end gap-3">
+                <!-- Toggle de modo -->
+                <div
+                    class="flex items-center gap-2 text-[10px] bg-slate-800/70 border border-slate-700 rounded-full px-2 py-1 shadow">
+                    <span class="text-slate-400 uppercase tracking-wide">Modo</span>
+                    <button id="mode-setup-btn"
+                        class="px-3 py-1 rounded-full font-semibold bg-indigo-600 text-white border border-indigo-400">
+                        🛠 Setup
+                    </button>
+                    <button id="mode-live-btn"
+                        class="px-3 py-1 rounded-full font-semibold bg-slate-800 text-slate-200 border border-slate-600">
+                        🎬 Operação
+                    </button>
                 </div>
-                <div class="bg-slate-800/50 px-4 py-2 rounded-lg border border-slate-700 flex flex-col items-center min-w-[90px]">
-                    <span class="text-[10px] text-slate-400 uppercase tracking-wide font-bold">Capacidade</span>
-                    <span id="slots-total" class="font-bold text-2xl text-white">0</span>
-                </div>
-                <div class="bg-slate-800/50 px-4 py-2 rounded-lg border border-slate-700 flex flex-col items-center min-w-[90px]">
-                    <span class="text-[10px] text-slate-400 uppercase tracking-wide font-bold">Fila</span>
-                    <span id="queue-count" class="font-bold text-2xl text-yellow-400">0</span>
-                </div>
+
+                <!-- KPIs -->
+                <div class="flex gap-3 text-sm">
+                    <div class="bg-slate-800/50 px-4 py-2 rounded-lg border border-slate-700 flex flex-col items-center min-w-[90px]">
+                        <span class="text-[10px] text-slate-400 uppercase tracking-wide font-bold">Vagas</span>
+                        <span id="slots-free" class="font-bold text-2xl text-green-400">0</span>
+                    </div>
+                    <div class="bg-slate-800/50 px-4 py-2 rounded-lg border border-slate-700 flex flex-col items-center min-w-[90px]">
+                        <span class="text-[10px] text-slate-400 uppercase tracking-wide font-bold">Capacidade</span>
+                        <span id="slots-total" class="font-bold text-2xl text-white">0</span>
+                    </div>
+                    <div class="bg-slate-800/50 px-4 py-2 rounded-lg border border-slate-700 flex flex-col items-center min-w-[90px]">
+                        <span class="text-[10px] text-slate-400 uppercase tracking-wide font-bold">Fila</span>
+                        <span id="queue-count" class="font-bold text-2xl text-yellow-400">0</span>
+                    </div>
+                    </div>
+                    </div>
+                    </div>
+    </div>
+    
+    <!-- MINI MENU DE NAVEGAÇÃO -->
+    <div class="max-w-7xl mx-auto px-6 pt-4">
+        <div
+            class="glass-panel rounded-xl p-2 border border-slate-700/60 sticky top-[76px] z-40 hidden md:block backdrop-blur">
+            <div class="flex flex-wrap gap-2 text-[11px]" id="section-nav">
+                <button class="section-nav-btn px-3 py-1 rounded-lg bg-slate-900/70 text-slate-200 border border-slate-700"
+                    data-target="#sec-wizard">⚡ Setup rápido</button>
+                <button class="section-nav-btn px-3 py-1 rounded-lg bg-slate-900/70 text-slate-200 border border-slate-700"
+                    data-target="#sec-source">1. Fonte</button>
+                <button class="section-nav-btn px-3 py-1 rounded-lg bg-slate-900/70 text-slate-200 border border-slate-700"
+                    data-target="#sec-control">2. Controle</button>
+                <button class="section-nav-btn px-3 py-1 rounded-lg bg-slate-900/70 text-slate-200 border border-slate-700"
+                    data-target="#sec-grid">3. Grid & Layout</button>
+                <button class="section-nav-btn px-3 py-1 rounded-lg bg-slate-900/70 text-slate-200 border border-slate-700"
+                    data-target="#sec-appearance">4. Aparência</button>
+                <button class="section-nav-btn px-3 py-1 rounded-lg bg-slate-900/70 text-slate-200 border border-slate-700"
+                    data-target="#sec-export">6. Export</button>
+                <button class="section-nav-btn px-3 py-1 rounded-lg bg-slate-900/70 text-slate-200 border border-slate-700"
+                    data-target="#sec-report">7. Relatório</button>
+                <button class="section-nav-btn px-3 py-1 rounded-lg bg-slate-900/70 text-slate-200 border border-slate-700"
+                    data-target="#sec-backup">8. Backup</button>
+                <button class="section-nav-btn px-3 py-1 rounded-lg bg-slate-900/70 text-slate-200 border border-slate-700"
+                    data-target="#sec-gallery">🖼 Gerenciador</button>
             </div>
         </div>
     </div>
 
     <div class="max-w-7xl mx-auto p-6">
         <!-- WIZARD + SETUP RÁPIDO DE EVENTO -->
-        <div class="glass-panel p-5 rounded-xl border-l-4 border-indigo-500 mb-8">
+        <div id="sec-wizard" class="glass-panel p-5 rounded-xl border-l-4 border-indigo-500 mb-8 setup-only">
             <div class="flex flex-col sm:flex-row justify-between gap-3 mb-4">
                 <div>
                     <h2 class="text-sm font-bold text-indigo-300 uppercase tracking-wider flex items-center gap-2">
@@ -204,7 +269,7 @@
                     </p>
                 </div>
             </div>
-        
+
             <!-- Navegação dos passos -->
             <div class="flex gap-2 mb-4 text-[10px]">
                 <button id="wizard-step-1-btn"
@@ -224,7 +289,7 @@
                     4. Export
                 </button>
             </div>
-        
+
             <!-- PASSO 1: TELA -->
             <div id="wizard-step-1" class="wizard-step space-y-4">
                 <div>
@@ -258,7 +323,7 @@
                     </p>
                 </div>
             </div>
-        
+
             <!-- PASSO 2: LAYOUT -->
             <div id="wizard-step-2" class="wizard-step hidden space-y-4">
                 <p class="text-[11px] text-slate-300">
@@ -286,7 +351,7 @@
                     <!-- texto opcional do wizard -->
                 </p>
             </div>
-        
+
             <!-- PASSO 3: VISUAL -->
             <div id="wizard-step-3" class="wizard-step hidden space-y-3">
                 <p class="text-[11px] text-slate-300">
@@ -303,7 +368,7 @@
                     <li>Logo do cliente e ticker (mensagem rolante) são ajustados em "Branding".</li>
                 </ul>
             </div>
-        
+
             <!-- PASSO 4: EXPORT -->
             <div id="wizard-step-4" class="wizard-step hidden space-y-4">
                 <div class="grid sm:grid-cols-2 gap-4">
@@ -331,7 +396,7 @@
                     </div>
                 </div>
             </div>
-        
+
             <!-- Navegação inferior do wizard -->
             <div class="mt-4 flex justify-between items-center">
                 <button id="wizard-prev"
@@ -349,7 +414,8 @@
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
 
             <div class="space-y-6">
-                <div class="glass-panel p-5 rounded-xl border-l-4 border-blue-500">
+                <!-- 1. FONTE DE IMAGENS -->
+                <div id="sec-source" class="glass-panel p-5 rounded-xl border-l-4 border-blue-500 setup-only">
                     <h3 class="text-blue-400 font-bold uppercase text-xs tracking-wider mb-4">1. Fonte de Imagens</h3>
                     <div class="flex bg-slate-900 p-1 rounded-lg mb-4 border border-slate-700">
                         <button id="mode-dropbox-btn" class="flex-1 py-2 text-xs font-bold rounded transition">☁️
@@ -372,7 +438,8 @@
                     </div>
                 </div>
 
-                <div class="glass-panel p-5 rounded-xl border-l-4 border-green-500">
+                <!-- 2. CONTROLE -->
+                <div id="sec-control" class="glass-panel p-5 rounded-xl border-l-4 border-green-500">
                     <h3 class="text-green-400 font-bold uppercase text-xs tracking-wider mb-4">2. Controle</h3>
                     <button id="toggle-processing"
                         class="w-full p-4 bg-green-600 hover:bg-green-500 rounded-lg font-bold transition mb-6 flex items-center justify-center gap-2 shadow-lg">
@@ -383,18 +450,34 @@
                                 id="process-interval-val" class="text-green-400 font-bold">3s</span></label>
                         <input type="range" id="process-interval" min="0.5" max="15" step="0.5" value="3" class="w-full accent-green-500">
                     </div>
-                    <div id="status-log"
-                        class="mt-4 bg-black/40 rounded p-2 h-24 overflow-y-auto font-mono text-[9px] border border-slate-800 text-slate-400">
-                        <div>Aguardando...</div>
+                    <!-- LOG MAIS INTELIGENTE -->
+                    <div class="mt-4 bg-slate-900/60 rounded-lg border border-slate-800 p-2">
+                        <div class="flex justify-between items-center mb-1 text-[10px]">
+                            <span class="text-slate-300 font-semibold">Log do servidor</span>
+                            <div class="flex items-center gap-2">
+                                <span id="status-error-counter" class="text-[10px] text-red-300">Erros: 0</span>
+                                <button id="status-log-clear"
+                                    class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[9px] text-slate-200 border border-slate-600">
+                                    Limpar
+                                </button>
+                            </div>
+                        </div>
+                        <div id="status-last-error" class="text-[9px] text-red-300 mb-1 hidden"></div>
+                        <div id="status-log"
+                            class="bg-black/40 rounded p-2 h-24 overflow-y-auto font-mono text-[9px] border border-slate-800 text-slate-400">
+                            <div>Aguardando...</div>
+                        </div>
                     </div>
                 </div>
             </div>
 
             <div class="space-y-6">
-                <div class="glass-panel p-5 rounded-xl">
+                <!-- 3. GRID & LAYOUT -->
+                <div id="sec-grid" class="glass-panel p-5 rounded-xl setup-only">
                     <h3 class="text-indigo-400 font-bold mb-4 uppercase text-xs tracking-wider">3. Grid & Layout</h3>
                     <div class="mb-4">
-                        <label class="text-[10px] uppercase font-bold text-slate-500 block mb-1">Modo de Cálculo</label>
+                        <label class="text-[10px] uppercase font-bold text-slate-500 block mb-1">Modo de
+                            Cálculo</label>
                         <select id="layout-mode" class="w-full bg-slate-800 border-slate-600 font-bold text-indigo-300">
                             <option value="target">🎯 Quantidade Alvo</option>
                             <option value="fit-all">🧩 Ajustar p/ todas as fotos</option>
@@ -432,31 +515,31 @@
                         </div>
                         <p id="grid-preview-label" class="text-[10px] text-slate-400 mt-1"></p>
                     </div>
-                    
+                </div>
+                
+                <!-- PRESETS RÁPIDOS -->
+                <div class="glass-panel p-5 rounded-xl setup-only">
+                    <h3 class="text-emerald-400 font-bold mb-3 uppercase text-xs tracking-wider">Presets Rápidos</h3>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <button id="preset-3x3-sem-fundo"
+                            class="p-3 rounded-lg border border-emerald-500/40 bg-emerald-900/20 text-left text-[11px] hover:bg-emerald-900/40 transition">
+                            <div class="font-semibold text-emerald-200">Evento 1</div>
+                            <div class="text-[10px] text-emerald-100/80">3 x 3 • Sem fundo</div>
+                        </button>
+                        <button id="preset-12x8-com-fundo"
+                            class="p-3 rounded-lg border border-sky-500/40 bg-sky-900/20 text-left text-[11px] hover:bg-sky-900/40 transition">
+                            <div class="font-semibold text-sky-200">Evento 2</div>
+                            <div class="text-[10px] text-sky-100/80">12 x 8 • Fundo 40%</div>
+                        </button>
                     </div>
-                    
-                    <!-- PRESETS RÁPIDOS -->
-                    <div class="glass-panel p-5 rounded-xl">
-                        <h3 class="text-emerald-400 font-bold mb-3 uppercase text-xs tracking-wider">Presets Rápidos</h3>
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <button id="preset-3x3-sem-fundo"
-                                class="p-3 rounded-lg border border-emerald-500/40 bg-emerald-900/20 text-left text-[11px] hover:bg-emerald-900/40 transition">
-                                <div class="font-semibold text-emerald-200">Evento 1</div>
-                                <div class="text-[10px] text-emerald-100/80">3 x 3 • Sem fundo</div>
-                            </button>
-                            <button id="preset-12x8-com-fundo"
-                                class="p-3 rounded-lg border border-sky-500/40 bg-sky-900/20 text-left text-[11px] hover:bg-sky-900/40 transition">
-                                <div class="font-semibold text-sky-200">Evento 2</div>
-                                <div class="text-[10px] text-sky-100/80">12 x 8 • Fundo 40%</div>
-                            </button>
-                        </div>
-                        <p class="text-[10px] text-slate-500 mt-3">
-                            Os presets ajustam layout e visual automaticamente. Você pode refinar todos os detalhes nas
-                            seções acima.
-                        </p>
+                    <p class="text-[10px] text-slate-500 mt-3">
+                        Os presets ajustam layout e visual automaticamente. Você pode refinar todos os detalhes nas
+                        seções acima.
+                    </p>
                 </div>
 
-                <div class="glass-panel p-5 rounded-xl">
+                <!-- 4. APARÊNCIA & FUNDO -->
+                <div id="sec-appearance" class="glass-panel p-5 rounded-xl setup-only">
                     <h3 class="text-purple-400 font-bold mb-4 uppercase text-xs tracking-wider">4. Aparência & Fundo
                     </h3>
                     <div class="mb-4">
@@ -499,7 +582,8 @@
             </div>
 
             <div class="space-y-6">
-                <div class="glass-panel p-5 rounded-xl border-l-4 border-pink-500">
+                <!-- 6. EXPORT SOUVENIR -->
+                <div id="sec-export" class="glass-panel p-5 rounded-xl border-l-4 border-pink-500 setup-only">
                     <h3 class="text-pink-400 font-bold mb-4 uppercase text-xs tracking-wider">6. Export Souvenir</h3>
                     <div class="space-y-4">
                         <label class="flex justify-between items-center cursor-pointer">
@@ -522,11 +606,13 @@
                             <input id="export-with-bg" type="checkbox" class="rounded border-slate-600">
                             Exportar com background
                         </label>
-                        <p class="text-[10px] text-slate-400 italic">Define o tamanho (em pixels) do arquivo de imagem
-                            final.</p>
+                        <p class="text-[10px] text-slate-400 italic">Dica: use valores a partir de 300px para melhor
+                            qualidade do souvenir.</p>
                     </div>
                 </div>
-                <div class="glass-panel p-5 rounded-xl">
+                <!-- 5. COMPORTAMENTO -->
+                <!-- 5. COMPORTAMENTO -->
+                <div id="sec-behavior" class="glass-panel p-5 rounded-xl">
                     <h3 class="text-slate-300 font-bold mb-4 uppercase text-xs tracking-wider">5. Comportamento</h3>
 
                     <div class="space-y-4">
@@ -538,6 +624,7 @@
                             </select>
                             <input type="number" id="anim-duration" class="w-16 text-center text-xs" value="600" placeholder="ms">
                             </div>
+<!-- Só o Hero aqui -->
                         <div class="bg-slate-800/30 p-3 rounded border border-slate-700/50 space-y-3">
                             <div>
                                 <div class="flex justify-between items-center mb-1">
@@ -549,17 +636,6 @@
                                 </div>
                                 <input type="range" id="hero-interval" min="5" max="60" step="1" value="10"
                                     class="w-full accent-yellow-500 h-1">
-                            </div>
-                            <div>
-                                <div class="flex justify-between items-center mb-1">
-                                    <label class="flex items-center gap-2 cursor-pointer">
-                                        <input type="checkbox" id="idle-enabled" class="accent-blue-500 w-3 h-3">
-                                        <span class="text-xs font-bold text-blue-400">Modo Descanso</span>
-                                    </label>
-                                    <span id="idle-timeout-val" class="text-[9px] text-slate-400">30s</span>
-                                </div>
-                                <input type="range" id="idle-timeout" min="10" max="300" step="10" value="30"
-                                    class="w-full accent-blue-500 h-1">
                             </div>
                         </div>
 
@@ -577,17 +653,19 @@
                                 <input type="checkbox" id="removal-mode" class="accent-red-500">
                             </label>
                         </div>
+
                         <button id="clear-hidden-btn"
-                            class="w-full mt-2 p-2 text-xs bg-red-900/30 hover:bg-red-900/50 text-red-300 rounded font-bold">🗑️
-                            Limpar
-                            Bloqueios</button>
+                            class="w-full mt-2 p-2 text-xs bg-red-900/30 hover:bg-red-900/50 text-red-300 rounded font-bold">
+                            🗑️ Limpar Bloqueios
+                        </button>
                     </div>
                 </div>
 
+
             </div>
         </div>
-        <!-- RELATÓRIO DO EVENTO / EXPORTS -->
-        <div class="glass-panel p-5 rounded-xl border-l-4 border-amber-500 mb-8">
+        <!-- 7. RELATÓRIO DO EVENTO / EXPORTS -->
+        <div id="sec-report" class="glass-panel p-5 rounded-xl border-l-4 border-amber-500 mb-8">
             <div class="flex flex-col sm:flex-row justify-between gap-3 mb-4">
                 <div>
                     <h3 class="text-amber-300 font-bold uppercase text-xs tracking-wider mb-1">
@@ -616,7 +694,7 @@
                     </button>
                 </div>
             </div>
-        
+
             <div id="event-report-content" class="grid grid-cols-2 md:grid-cols-4 gap-3 text-[11px]">
                 <div class="bg-slate-900/60 border border-slate-700 rounded-lg p-3">
                     <div class="text-slate-400 uppercase tracking-wider text-[9px] mb-1">
@@ -646,14 +724,44 @@
                     </p>
                 </div>
             </div>
-        
+
             <p id="event-report-empty" class="text-[10px] text-slate-500 mt-3 hidden">
                 Nenhum souvenir exportado ainda. Assim que as fotos forem exibidas no telão, os dados aparecem aqui.
             </p>
         </div>
+
+        <!-- 8. BACKUP DE CONFIGURAÇÃO -->
+        <div id="sec-backup" class="glass-panel p-5 rounded-xl border-l-4 border-sky-500 mb-8 setup-only">
+            <div class="flex flex-col sm:flex-row justify-between gap-3 mb-4">
+                <div>
+                    <h3 class="text-sky-300 font-bold uppercase text-xs tracking-wider mb-1">
+                        8. Backup de Configuração
+                    </h3>
+                    <p class="text-[11px] text-slate-400">
+                        Exporte e importe o config do mural. O mesmo arquivo é lido pelo telão (main) via
+                        <code class="font-mono text-[10px]">localStorage</code>.
+                    </p>
+                </div>
+            </div>
+            <div class="flex flex-col md:flex-row gap-3 items-start md:items-center">
+                <button id="config-download-btn"
+                    class="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-400 text-xs font-semibold">
+                    ⬇ Baixar config.json
+                </button>
         
+                <label
+                    class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-600 text-xs text-slate-100 cursor-pointer">
+                    📂 Carregar config.json
+                    <input type="file" id="config-upload-input" accept="application/json" class="hidden">
+                </label>
+            </div>
+            <p class="text-[10px] text-slate-500 mt-2">
+                Ideal para replicar o mesmo setup em outra máquina ou recuperar rapidamente um layout aprovado.
+            </p>
+        </div>
+
         <!-- GALERIA / GERENCIADOR -->
-        <div class="glass-panel p-6 rounded-xl border-t-4 border-slate-600">
+        <div id="sec-gallery" class="glass-panel p-6 rounded-xl border-t-4 border-slate-600">
             <div class="flex flex-col sm:flex-row justify-between items-center mb-4 gap-4">
                 <h2 class="text-lg font-bold text-white flex items-center gap-2">🖼️ Gerenciador</h2>
                 <div class="flex bg-slate-900/50 p-1 rounded-lg border border-slate-700">

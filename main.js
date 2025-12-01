@@ -19,6 +19,12 @@ let lastActivityTime = Date.now();
 let queueTimeoutId = null;
 let isUpdatingUI = false;
 
+// Garante defaults para os filtros de background (caso venham undefined)
+config.bgBrightness = config.bgBrightness ?? 100;
+config.bgContrast = config.bgContrast ?? 100;
+config.bgSaturate = config.bgSaturate ?? 100;
+config.bgBlur = config.bgBlur ?? 0;
+
 // --- ELEMENTOS UI ---
 const getEls = () => ({
     autoCheck: document.getElementById('auto-grid'),
@@ -94,7 +100,13 @@ function triggerSouvenirExport(photoId, slotDiv, currentConfig, slotIndex) {
             h: currentConfig.exportHeight || 1080
         },
         opacity,
-        gridNumber    // 🔢 manda pro servidor desenhar no JPEG
+        gridNumber,
+        bgFilters: {
+            brightness: currentConfig.bgBrightness ?? 100,
+            contrast: currentConfig.bgContrast ?? 100,
+            saturate: currentConfig.bgSaturate ?? 100,
+            blur: currentConfig.bgBlur ?? 0
+        }
     };
 
     fetch('http://localhost:3000/api/export-collage', {
@@ -244,15 +256,28 @@ function applyLayoutAndEffects() {
     }
 }
 
+// --- BACKGROUND + FILTROS ---
 function applyBackground() {
+    const rootStyle = document.documentElement.style;
+
+    // Imagem de fundo (vem do admin)
     if (config.backgroundUrl) {
-        document.body.style.backgroundImage = `url('${config.backgroundUrl}')`;
-        document.body.style.backgroundSize = '100% 100%';
-        document.body.style.backgroundPosition = 'center';
+        rootStyle.setProperty('--wall-bg-image', `url('${config.backgroundUrl}')`);
     } else {
-        document.body.style.backgroundImage = 'none';
-        document.body.style.backgroundColor = '#111827';
+        rootStyle.setProperty('--wall-bg-image', 'none');
     }
+
+    // Filtros (brilho / contraste / saturação / blur)
+    const b = config.bgBrightness ?? 100;
+    const c = config.bgContrast ?? 100;
+    const s = config.bgSaturate ?? 100;
+    const blur = config.bgBlur ?? 0;
+
+    const filter = `brightness(${b}%) contrast(${c}%) saturate(${s}%) blur(${blur}px)`;
+    rootStyle.setProperty('--wall-bg-filter', filter);
+
+    // Cor de fallback por segurança
+    document.body.style.backgroundColor = '#111827';
 }
 
 // --- MENU LATERAL ---
@@ -262,7 +287,9 @@ function setupLocalListeners() {
     if (els.openBtn) els.openBtn.addEventListener('click', toggleMenu);
     if (els.closeBtn) els.closeBtn.addEventListener('click', toggleMenu);
     if (els.closeX) els.closeX.addEventListener('click', toggleMenu);
-    window.addEventListener('keydown', (e) => { if (e.key.toLowerCase() === 'c' && e.target.tagName !== 'INPUT') toggleMenu(); });
+    window.addEventListener('keydown', (e) => {
+        if (e.key.toLowerCase() === 'c' && e.target.tagName !== 'INPUT') toggleMenu();
+    });
 
     const bind = (el, key, parser = v => v) => {
         if (!el) return;
@@ -271,8 +298,12 @@ function setupLocalListeners() {
             const val = parser(e.target.type === 'checkbox' ? e.target.checked : e.target.value);
             config[key] = val;
             saveConfig(config);
-            if (['cols', 'rows', 'autoGrid', 'photoWidth', 'photoHeight', 'gap'].includes(key)) applyLayoutAndEffects();
-            if (key === 'opacity') document.querySelectorAll('img').forEach(i => i.style.opacity = val);
+            if (['cols', 'rows', 'autoGrid', 'photoWidth', 'photoHeight', 'gap'].includes(key)) {
+                applyLayoutAndEffects();
+            }
+            if (key === 'opacity') {
+                document.querySelectorAll('img').forEach(i => i.style.opacity = val);
+            }
             if (key === 'processInterval') {
                 const span = document.getElementById('process-interval-val');
                 if (span) span.textContent = (val / 1000) + 's';
@@ -334,11 +365,15 @@ function updateLocalMenuUI() {
         const icon = document.getElementById('toggle-icon');
         const text = document.getElementById('toggle-text');
         if (config.processing) {
-            if (icon) icon.textContent = "⏸️"; if (text) text.textContent = "Pausar";
-            els.toggleBtn.className = "w-full p-3 bg-red-600 hover:bg-red-700 rounded-lg font-bold transition mb-4 flex items-center justify-center gap-2";
+            if (icon) icon.textContent = '⏸️';
+            if (text) text.textContent = 'Pausar';
+            els.toggleBtn.className =
+                'w-full p-3 bg-red-600 hover:bg-red-700 rounded-lg font-bold transition mb-4 flex items-center justify-center gap-2';
         } else {
-            if (icon) icon.textContent = "▶️"; if (text) text.textContent = "Começar";
-            els.toggleBtn.className = "w-full p-3 bg-green-600 hover:bg-green-500 rounded-lg font-bold transition mb-4 flex items-center justify-center gap-2";
+            if (icon) icon.textContent = '▶️';
+            if (text) text.textContent = 'Começar';
+            els.toggleBtn.className =
+                'w-full p-3 bg-green-600 hover:bg-green-500 rounded-lg font-bold transition mb-4 flex items-center justify-center gap-2';
         }
     }
     isUpdatingUI = false;
@@ -347,7 +382,11 @@ function updateLocalMenuUI() {
 // --- RENDER ---
 function loadGridState() {
     if (!config.persistGrid) return [];
-    try { return JSON.parse(localStorage.getItem(GRID_STATE_KEY) || '[]'); } catch (e) { return []; }
+    try {
+        return JSON.parse(localStorage.getItem(GRID_STATE_KEY) || '[]');
+    } catch (e) {
+        return [];
+    }
 }
 function saveGridState(state) {
     if (config.persistGrid) {
@@ -378,7 +417,6 @@ function updateSlotNumberOverlay(div, slotIndex, hasImage) {
         div.appendChild(label);
     }
 }
-
 
 function renderCurrentState(gridState, imageMap) {
     const slots = Array.from(socialWall.children);
@@ -526,6 +564,12 @@ async function init() {
     // primeiro tenta restaurar do arquivo (se localStorage estiver vazio)
     await restoreStateFromServer();
     config = loadConfig();
+
+    // garante defaults de filtros se vierem do restore
+    config.bgBrightness = config.bgBrightness ?? 100;
+    config.bgContrast = config.bgContrast ?? 100;
+    config.bgSaturate = config.bgSaturate ?? 100;
+    config.bgBlur = config.bgBlur ?? 0;
 
     applyLayoutAndEffects();
     setupLocalListeners();
