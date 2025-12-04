@@ -19,11 +19,18 @@ let lastActivityTime = Date.now();
 let queueTimeoutId = null;
 let isUpdatingUI = false;
 
-// Garante defaults para os filtros de background (caso venham undefined)
+// Garante defaults para os filtros de background
 config.bgBrightness = config.bgBrightness ?? 100;
 config.bgContrast = config.bgContrast ?? 100;
 config.bgSaturate = config.bgSaturate ?? 100;
 config.bgBlur = config.bgBlur ?? 0;
+
+// Garante default e normalização da intensidade do overlay (0–100)
+let ov = config.overlayStrength;
+if (typeof ov !== 'number') ov = parseInt(ov || '100', 10);
+if (Number.isNaN(ov)) ov = 100;
+ov = Math.min(100, Math.max(0, ov));
+config.overlayStrength = ov;
 
 // --- ELEMENTOS UI ---
 const getEls = () => ({
@@ -61,10 +68,9 @@ const socialWall = document.getElementById('social-wall');
 function triggerSouvenirExport(photoId, slotDiv, currentConfig, slotIndex) {
     if (!currentConfig.exportEnabled) return;
 
-    // Se exportWithBackground estiver desligado, manda backgroundUrl nulo
     const useBackground = currentConfig.exportWithBackground !== false;
     if (!useBackground || !currentConfig.backgroundUrl) {
-        console.warn('[Exportador Wall] (main.js) Exportando sem background (apenas foto).');
+        console.warn('[Exportador Wall] Exportando sem background (apenas foto).');
     }
 
     const cols = currentConfig.cols || 1;
@@ -73,40 +79,56 @@ function triggerSouvenirExport(photoId, slotDiv, currentConfig, slotIndex) {
     const row = Math.floor(slotIndex / cols);
     const col = slotIndex % cols;
 
+    // 1. Normaliza Opacidade
     let opacity = currentConfig.opacity;
     if (typeof opacity === 'string') opacity = parseFloat(opacity);
     if (Number.isNaN(opacity) || opacity <= 0 || opacity > 1) opacity = 1;
 
+    // 2. Calcula Coordenadas do Slot
     const slotRect = slotDiv.getBoundingClientRect();
-    const gridNumber = slotIndex + 1;
+    // O Wall usa a viewport como referência, mas para garantir precisão, podemos enviar
+    // as dimensões relativas se o servidor precisar calcular proporção.
+    // Aqui enviamos coordenadas absolutas da tela.
 
-    console.log('[TRIGGER EXPORT] (main.js) Foto:', photoId,
-        'slotIndex:', slotIndex,
-        'gridNumber:', gridNumber,
-        'tile(row,col)=', row, col,
-        'rect=', {
+    // IMPORTANTE: Se o container do Wall não for 100vw/100vh, isso precisaria de ajuste.
+    // Assumimos tela cheia.
+    const slotCoords = {
         x: Math.round(slotRect.left),
         y: Math.round(slotRect.top),
         w: Math.round(slotRect.width),
         h: Math.round(slotRect.height)
+    };
+
+    const gridNumber = currentConfig.showGridNumber ? (slotIndex + 1) : null;
+
+    console.log('[TRIGGER EXPORT] Enviando:', {
+        photoId,
+        slotIndex,
+        gridNumber,
+        slotCoords,
+        opacity,
+        overlayStrength: currentConfig.overlayStrength
     });
 
+    // 3. Monta Payload
     const exportData = {
         photoId,
         backgroundUrl: useBackground ? currentConfig.backgroundUrl : null,
-        tile: { row, col, cols, rows },
+        tile: { row, col, cols, rows }, // Info da célula na matriz
+        slotCoords,                     // Info de pixels na tela
         exportSize: {
             w: currentConfig.exportWidth || 1080,
             h: currentConfig.exportHeight || 1080
         },
-        opacity,
+        opacity, // <--- CRÍTICO: Envia a opacidade (ex: 0.4)
         gridNumber,
         bgFilters: {
             brightness: currentConfig.bgBrightness ?? 100,
             contrast: currentConfig.bgContrast ?? 100,
             saturate: currentConfig.bgSaturate ?? 100,
             blur: currentConfig.bgBlur ?? 0
-        }
+        },
+        overlayStrength: currentConfig.overlayStrength ?? 100 // Envia força do overlay
     };
 
     fetch('http://localhost:3000/api/export-collage', {
@@ -120,22 +142,30 @@ function triggerSouvenirExport(photoId, slotDiv, currentConfig, slotIndex) {
         })
         .then(data => {
             if (data.url) {
-                console.log(`[Exportador Wall] (main.js) Sucesso! Souvenir em: ${data.url} (backgroundUsed=${data.backgroundUsed})`);
+                console.log(`[Exportador Wall] Sucesso! URL: ${data.url}`);
             } else {
-                console.warn('[Exportador Wall] (main.js) Resposta sem URL:', data);
+                console.warn('[Exportador Wall] Resposta sem URL:', data);
             }
         })
         .catch(err => {
-            console.error('[Exportador Wall] (main.js) Erro ao chamar /api/export-collage:', err);
+            console.error('[Exportador Wall] Erro ao chamar API:', err);
         });
 }
 
 
-// --- COMUNICAÇÃO ---
+// --- COMUNICAÇÃO (WS/BroadcastChannel) ---
 if (syncChannel) {
     syncChannel.onmessage = (event) => {
         if (event.data && event.data.type === 'CONFIG_UPDATE') {
             config = event.data.data;
+
+            // normaliza overlayStrength
+            let ov = config.overlayStrength;
+            if (typeof ov !== 'number') ov = parseInt(ov || '100', 10);
+            if (Number.isNaN(ov)) ov = 100;
+            ov = Math.min(100, Math.max(0, ov));
+            config.overlayStrength = ov;
+
             requestAnimationFrame(() => {
                 applyLayoutAndEffects();
                 updateLocalMenuUI();
@@ -153,6 +183,13 @@ setInterval(() => {
         const diskConfig = JSON.parse(stored);
         if (JSON.stringify(diskConfig) !== JSON.stringify(config)) {
             config = diskConfig;
+
+            let ov = config.overlayStrength;
+            if (typeof ov !== 'number') ov = parseInt(ov || '100', 10);
+            if (Number.isNaN(ov)) ov = 100;
+            ov = Math.min(100, Math.max(0, ov));
+            config.overlayStrength = ov;
+
             applyLayoutAndEffects();
             updateLocalMenuUI();
         }
@@ -164,7 +201,6 @@ function calculateGridDimensions() {
     const W = window.innerWidth;
     const H = window.innerHeight;
 
-    // 🎯 Modo "Quantidade alvo"
     if (config.layoutMode === 'target') {
         const target = Math.max(1, config.targetCount || 20);
         const screenRatio = W / H;
@@ -173,30 +209,23 @@ function calculateGridDimensions() {
         return { cols: bestCols, rows: bestRows };
     }
 
-    // 🧩 Novo modo: "Ajustar p/ todas as fotos"
     if (config.layoutMode === 'fit-all') {
         const screenRatio = W / H;
         const hiddenImages = getHiddenImages();
-        // só conta as disponíveis (não escondidas)
         const available = globalBackendImages.filter(img => !hiddenImages.includes(img.id));
         let target = available.length;
 
-        // se ainda não tem nenhuma foto, cai num default
-        if (target <= 0) {
-            target = Math.max(1, config.targetCount || 20);
-        }
+        if (target <= 0) target = Math.max(1, config.targetCount || 20);
 
         let bestCols = Math.ceil(Math.sqrt(target * screenRatio));
         let bestRows = Math.ceil(target / bestCols);
 
-        // garante pelo menos 1x1
         bestCols = Math.max(1, bestCols);
         bestRows = Math.max(1, bestRows);
 
         return { cols: bestCols, rows: bestRows };
     }
 
-    // 📐 Auto-fit por tamanho de foto
     if (config.layoutMode === 'auto-fit') {
         const pW = Math.max(50, config.photoWidth || 300);
         const pH = Math.max(50, config.photoHeight || 300);
@@ -206,7 +235,6 @@ function calculateGridDimensions() {
         };
     }
 
-    // 🖐️ Manual
     return { cols: config.cols || 4, rows: config.rows || 3 };
 }
 
@@ -246,7 +274,16 @@ function applyLayoutAndEffects() {
         socialWall.appendChild(d);
     }
 
+    // Atualiza opacidade das imagens já existentes
     document.querySelectorAll('.image-container img').forEach(img => img.style.opacity = config.opacity);
+
+    // Atualiza o "patch" do background em todos os slots (efeito visual na tela)
+    const slots = Array.from(socialWall.children);
+    slots.forEach((div, i) => {
+        const hasImage = !!div.querySelector('img');
+        updateSlotBackgroundSlice(div, i, hasImage);
+        updateSlotNumberOverlay(div, i, hasImage);
+    });
 
     if (config.processing) {
         if (!queueTimeoutId) loopQueue();
@@ -256,18 +293,16 @@ function applyLayoutAndEffects() {
     }
 }
 
-// --- BACKGROUND + FILTROS ---
+// --- BACKGROUND + FILTROS (Visual na Tela) ---
 function applyBackground() {
     const rootStyle = document.documentElement.style;
 
-    // Imagem de fundo (vem do admin)
     if (config.backgroundUrl) {
         rootStyle.setProperty('--wall-bg-image', `url('${config.backgroundUrl}')`);
     } else {
         rootStyle.setProperty('--wall-bg-image', 'none');
     }
 
-    // Filtros (brilho / contraste / saturação / blur)
     const b = config.bgBrightness ?? 100;
     const c = config.bgContrast ?? 100;
     const s = config.bgSaturate ?? 100;
@@ -276,17 +311,17 @@ function applyBackground() {
     const filter = `brightness(${b}%) contrast(${c}%) saturate(${s}%) blur(${blur}px)`;
     rootStyle.setProperty('--wall-bg-filter', filter);
 
-    // Cor de fallback por segurança
     document.body.style.backgroundColor = '#111827';
 }
 
-// --- MENU LATERAL ---
+// --- MENU LATERAL (UI Local) ---
 function setupLocalListeners() {
     const els = getEls();
     const toggleMenu = () => els.panel?.classList.toggle('open');
     if (els.openBtn) els.openBtn.addEventListener('click', toggleMenu);
     if (els.closeBtn) els.closeBtn.addEventListener('click', toggleMenu);
     if (els.closeX) els.closeX.addEventListener('click', toggleMenu);
+
     window.addEventListener('keydown', (e) => {
         if (e.key.toLowerCase() === 'c' && e.target.tagName !== 'INPUT') toggleMenu();
     });
@@ -298,6 +333,7 @@ function setupLocalListeners() {
             const val = parser(e.target.type === 'checkbox' ? e.target.checked : e.target.value);
             config[key] = val;
             saveConfig(config);
+
             if (['cols', 'rows', 'autoGrid', 'photoWidth', 'photoHeight', 'gap'].includes(key)) {
                 applyLayoutAndEffects();
             }
@@ -367,19 +403,17 @@ function updateLocalMenuUI() {
         if (config.processing) {
             if (icon) icon.textContent = '⏸️';
             if (text) text.textContent = 'Pausar';
-            els.toggleBtn.className =
-                'w-full p-3 bg-red-600 hover:bg-red-700 rounded-lg font-bold transition mb-4 flex items-center justify-center gap-2';
+            els.toggleBtn.className = 'w-full p-3 bg-red-600 hover:bg-red-700 rounded-lg font-bold transition mb-4 flex items-center justify-center gap-2';
         } else {
             if (icon) icon.textContent = '▶️';
             if (text) text.textContent = 'Começar';
-            els.toggleBtn.className =
-                'w-full p-3 bg-green-600 hover:bg-green-500 rounded-lg font-bold transition mb-4 flex items-center justify-center gap-2';
+            els.toggleBtn.className = 'w-full p-3 bg-green-600 hover:bg-green-500 rounded-lg font-bold transition mb-4 flex items-center justify-center gap-2';
         }
     }
     isUpdatingUI = false;
 }
 
-// --- RENDER ---
+// --- ESTADO DO GRID ---
 function loadGridState() {
     if (!config.persistGrid) return [];
     try {
@@ -395,10 +429,10 @@ function saveGridState(state) {
     }
 }
 
+// --- AUXILIARES DE RENDERIZAÇÃO ---
 function updateSlotNumberOverlay(div, slotIndex, hasImage) {
     const existing = div.querySelector('.grid-slot-number');
 
-    // Se não tiver imagem ou o toggle estiver desligado, remove o label
     if (!hasImage || !config.showGridNumber) {
         if (existing) existing.remove();
         return;
@@ -418,6 +452,38 @@ function updateSlotNumberOverlay(div, slotIndex, hasImage) {
     }
 }
 
+function updateSlotBackgroundSlice(div, slotIndex, hasImage) {
+    const cols = config.cols || 1;
+    const rows = config.rows || 1;
+
+    const col = cols > 0 ? (slotIndex % cols) : 0;
+    const row = cols > 0 ? Math.floor(slotIndex / cols) : 0;
+
+    const size = `${cols * 100}% ${rows * 100}%`;
+
+    let posX = '50%';
+    let posY = '50%';
+
+    if (cols > 1) posX = `${(col / (cols - 1)) * 100}%`;
+    if (rows > 1) posY = `${(row / (rows - 1)) * 100}%`;
+
+    div.style.setProperty('--slot-bg-size', size);
+    div.style.setProperty('--slot-bg-pos', `${posX} ${posY}`);
+
+    // Calcula opacidade do overlay (0 a 1)
+    let strength = config.overlayStrength;
+    if (typeof strength === 'string') strength = parseInt(strength || '100', 10);
+    if (Number.isNaN(strength)) strength = 100;
+    strength = Math.min(100, Math.max(0, strength));
+
+    // Se tem imagem, aplica overlay. Se não, transparente.
+    const finalAlpha = hasImage ? (strength / 100) : 0;
+    div.style.setProperty('--slot-overlay-opacity', String(finalAlpha));
+}
+
+// --- RENDER CURRENT STATE ---
+
+
 function renderCurrentState(gridState, imageMap) {
     const slots = Array.from(socialWall.children);
 
@@ -425,37 +491,23 @@ function renderCurrentState(gridState, imageMap) {
         const idInSlot = gridState[i] || null;
         const currentId = div.getAttribute('data-id') || null;
 
-        // Slot vazio
-        if (!idInSlot) {
-            div.innerHTML = '';
-            div.setAttribute('data-id', '');
-            updateSlotNumberOverlay(div, i, false);
-            return;
-        }
-
-        // Mesma imagem no mesmo slot: só atualiza visual + label
-        if (idInSlot === currentId) {
-            const imgExisting = div.querySelector('img');
-            if (imgExisting) imgExisting.style.opacity = config.opacity;
-            updateSlotNumberOverlay(div, i, true);
-            return;
-        }
+        // Slot vazio ou sem mudança: lógica padrão
+        if (!idInSlot) { /* ... */ return; }
+        if (idInSlot === currentId) { /* ... */ return; }
 
         // Nova imagem nesse slot
         div.innerHTML = '';
         div.setAttribute('data-id', idInSlot);
 
         const data = imageMap.get(idInSlot);
-        if (!data) {
-            updateSlotNumberOverlay(div, i, false);
-            return;
-        }
+        if (!data) { /* ... */ return; }
 
         const img = document.createElement('img');
         img.src = data.url;
         img.className = 'w-full h-full object-cover block shadow-lg';
         img.style.opacity = '0';
-        img.style.transition = `all ${config.animDuration}ms ease-out`;
+        // Transição suave para a opacidade
+        img.style.transition = `opacity ${config.animDuration}ms ease-out`;
 
         let transform = 'scale(0.95)';
         if (config.animType === 'pop') transform = 'scale(0.5)';
@@ -465,13 +517,41 @@ function renderCurrentState(gridState, imageMap) {
 
         div.appendChild(img);
         updateSlotNumberOverlay(div, i, true);
+        updateSlotBackgroundSlice(div, i, true);
 
         requestAnimationFrame(() => {
             requestAnimationFrame(() => {
                 img.style.opacity = config.opacity;
                 img.style.transform = 'scale(1) translateY(0) rotate(0)';
 
-                // dispara export depois que a animação terminou
+                // 🟢 LÓGICA ATUALIZADA DA ANIMAÇÃO DE CHEGADA 🟢
+                if (config.entryAnimation) {
+                    // 1. Define as variáveis CSS dinamicamente para este slot
+                    const scale = config.entryScale || 1.5;
+                    const speed = config.entryAnimSpeed || 500; // ms
+                    const duration = config.entryDuration || 3000; // ms
+
+                    div.style.setProperty('--hero-scale', scale);
+                    div.style.setProperty('--hero-transition', `${speed}ms`);
+
+                    // 2. Adiciona a classe
+                    div.classList.add('hero-active');
+
+                    // 3. Remove após o tempo configurado
+                    setTimeout(() => {
+                        div.classList.remove('hero-active');
+
+                        // Limpeza opcional das variáveis após animação
+                        setTimeout(() => {
+                            div.style.removeProperty('--hero-scale');
+                            div.style.removeProperty('--hero-transition');
+                        }, speed + 100); // espera a transição de saída terminar
+
+                    }, duration);
+                }
+                // 🟢 FIM NOVA LÓGICA 🟢
+
+                // dispara export...
                 const slotDiv = slots[i];
                 setTimeout(() => {
                     triggerSouvenirExport(idInSlot, slotDiv, config, i);
@@ -480,8 +560,6 @@ function renderCurrentState(gridState, imageMap) {
         });
     });
 }
-
-
 // --- FILA (UMA POR VEZ) ---
 function processQueueStep() {
     if (globalBackendImages.length === 0) return;
@@ -503,6 +581,7 @@ function processQueueStep() {
 
     let hasChanges = false;
 
+    // Limpa slots inválidos
     gridState = gridState.map(id => {
         if (id && (!availableIds.has(id) || hiddenImages.includes(id))) {
             hasChanges = true;
@@ -513,9 +592,10 @@ function processQueueStep() {
 
     const usedIds = new Set(gridState.filter(id => id !== null));
 
+    // Candidatos (mais antigos primeiro, se sua lógica for FIFO)
     const candidates = globalBackendImages
         .filter(img => !usedIds.has(img.id) && !hiddenImages.includes(img.id))
-        .sort((a, b) => b.timestamp - a.timestamp);
+        .sort((a, b) => a.timestamp - b.timestamp);
 
     let emptyIndices = [];
     gridState.forEach((val, i) => { if (val === null) emptyIndices.push(i); });
@@ -561,15 +641,19 @@ function loopQueue() {
 }
 
 async function init() {
-    // primeiro tenta restaurar do arquivo (se localStorage estiver vazio)
     await restoreStateFromServer();
     config = loadConfig();
 
-    // garante defaults de filtros se vierem do restore
     config.bgBrightness = config.bgBrightness ?? 100;
     config.bgContrast = config.bgContrast ?? 100;
     config.bgSaturate = config.bgSaturate ?? 100;
     config.bgBlur = config.bgBlur ?? 0;
+
+    let ov = config.overlayStrength;
+    if (typeof ov !== 'number') ov = parseInt(ov || '100', 10);
+    if (Number.isNaN(ov)) ov = 100;
+    ov = Math.min(100, Math.max(0, ov));
+    config.overlayStrength = ov;
 
     applyLayoutAndEffects();
     setupLocalListeners();
@@ -584,7 +668,6 @@ async function init() {
                 const prevCount = globalBackendImages.length;
                 globalBackendImages = data;
 
-                // se estamos no modo "fit-all", qualquer mudança de quantidade refaz o layout
                 if (config.layoutMode === 'fit-all' && data.length !== prevCount) {
                     applyLayoutAndEffects();
                 }

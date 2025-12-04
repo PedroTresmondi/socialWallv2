@@ -403,7 +403,8 @@ app.post('/api/export-collage', async (req, res) => {
         exportSize,
         opacity,
         gridNumber: rawGridNumber,
-        bgFilters    // 🔽 NOVO: filtros vindos do main.js
+        bgFilters,
+        overlayStrength: rawOverlayStrength // <= vindo do admin / main / preview
     } = req.body;
 
     if (!photoId || !tile || !exportSize) {
@@ -412,6 +413,7 @@ app.post('/api/export-collage', async (req, res) => {
             .json({ message: 'Dados insuficientes para exportação.' });
     }
 
+    // --- GRID NUMBER NORMALIZADO ---
     let gridNumber = rawGridNumber;
     if (gridNumber !== undefined && gridNumber !== null) {
         gridNumber = parseInt(gridNumber, 10);
@@ -422,41 +424,51 @@ app.post('/api/export-collage', async (req, res) => {
         gridNumber = null;
     }
 
+    // --- TILE / LAYOUT ---
     let { row, col, cols, rows } = tile;
     cols = cols || 1;
     rows = rows || 1;
 
-    let alpha = opacity;
+    // --- OPACIDADE DA FOTO (MESMO SLIDER DO ADMIN) ---
+    let photoAlpha = opacity;
+    if (typeof photoAlpha === 'string') photoAlpha = parseFloat(photoAlpha);
+    if (!Number.isFinite(photoAlpha)) photoAlpha = 1;
 
-    // pode vir como string do JSON
-    if (typeof alpha === 'string') {
-        alpha = parseFloat(alpha);
-    }
+    // aceita 0–1 ou 0–100
+    if (photoAlpha > 1 && photoAlpha <= 100) photoAlpha = photoAlpha / 100;
+    if (photoAlpha < 0) photoAlpha = 0;
+    if (photoAlpha > 1) photoAlpha = 1;
 
-    // se vier quebrado, default = 0.4 (igual hoje)
-    if (!Number.isFinite(alpha)) {
-        alpha = 0.4;
-    }
+    // --- FORÇA DO OVERLAY (NOVO SLIDER overlayStrength: 0–100) ---
+    let overlayStrength = rawOverlayStrength;
+    if (typeof overlayStrength === 'string') overlayStrength = parseFloat(overlayStrength);
+    if (!Number.isFinite(overlayStrength)) overlayStrength = 100; // default: overlay cheio
+    if (overlayStrength < 0) overlayStrength = 0;
+    if (overlayStrength > 100) overlayStrength = 100;
 
-    // se vier em porcentagem (0–100), converte pra 0–1
-    if (alpha > 1) {
-        alpha = alpha / 100;
-    }
+    const overlayFactor = overlayStrength / 100;
 
-    // garante que fique entre 0 e 1
-    if (alpha < 0) alpha = 0;
-    if (alpha > 1) alpha = 1;
+    // quanto de "tinta" de fundo entra por cima da foto
+    // regra: quanto menor a opacidade da foto, maior a intensidade da tinta
+    // se opacity = 1  -> tintAlpha = 0 (sem overlay)
+    // se opacity = 0.4 e overlayStrength = 100 -> tintAlpha = 0.6
+    let tintAlpha = (1 - photoAlpha) * overlayFactor;
+    if (tintAlpha < 0) tintAlpha = 0;
+    if (tintAlpha > 1) tintAlpha = 1;
+
+    // mistura de textura PB dentro da foto base (efeito "revelação texturizada")
+    const grayMix = 0.2; // 20% de textura PB na foto
 
     // --- NORMALIZA FILTROS DE BG ---
-    const brightnessPct = bgFilters?.brightness ?? 100; // 100 = neutro
+    const brightnessPct = bgFilters?.brightness ?? 100;
     const contrastPct = bgFilters?.contrast ?? 100;
     const saturatePct = bgFilters?.saturate ?? 100;
     const blurPx = bgFilters?.blur ?? 0;
 
-    const brightness = brightnessPct / 100; // sharp.modulate: 1 = 100%
+    const brightness = brightnessPct / 100;
     const saturation = saturatePct / 100;
-    const contrast = contrastPct / 100; // vamos aproximar contraste com linear()
-    const blurSigma = blurPx > 0 ? blurPx / 2 : 0; // aproximação px -> sigma
+    const contrast = contrastPct / 100;
+    const blurSigma = blurPx > 0 ? blurPx / 2 : 0;
 
     try {
         const photoPath = path.join(PROCESSED_IMAGES_DIR, photoId);
@@ -509,15 +521,24 @@ app.post('/api/export-collage', async (req, res) => {
         const bgFilename = path.basename(backgroundUrl);
         const localBgPath = path.join(BACKGROUNDS_DIR, bgFilename);
 
-        if (fs.existsSync(localBgPath)) {
-            bgSharp = sharp(localBgPath);
-        } else {
-            const resp = await fetch(backgroundUrl);
-            const bgBuffer = Buffer.from(await resp.arrayBuffer());
-            bgSharp = sharp(bgBuffer);
+        // tenta carregar o BG local; se não existir, tenta via URL (pode ser http://localhost ou remoto)
+        try {
+            if (fs.existsSync(localBgPath)) {
+                bgSharp = sharp(localBgPath);
+            } else {
+                const resp = await fetch(backgroundUrl);
+                if (resp.ok) {
+                    const bgBuffer = Buffer.from(await resp.arrayBuffer());
+                    bgSharp = sharp(bgBuffer);
+                }
+            }
+        } catch (loadError) {
+            logToClients(`Exportador: Erro ao carregar background: ${loadError.message}`, 'error');
         }
 
+        // fallback se não conseguir o fundo
         if (!bgSharp) {
+            logToClients('Exportador: Background não pôde ser carregado. Exportando apenas a foto (Fallback).', 'warn');
             let pipelineFallback = sharp(photoData, { raw: photoInfo });
 
             if (gridNumber) {
@@ -530,10 +551,7 @@ app.post('/api/export-collage', async (req, res) => {
             const finalBuffer = await pipelineFallback
                 .jpeg({ quality: 90 })
                 .toBuffer();
-            const filename = `${path.basename(
-                photoId,
-                path.extname(photoId)
-            )}_export_${Date.now()}.jpg`;
+            const filename = `${path.basename(photoId, path.extname(photoId))}_export_${Date.now()}.jpg`;
             const finalPath = path.join(EXPORT_DIR, filename);
             fs.writeFileSync(finalPath, finalBuffer);
             return res.status(200).json({
@@ -580,8 +598,6 @@ app.post('/api/export-collage', async (req, res) => {
 
         // contraste aproximado
         if (contrast !== 1) {
-            // linear(a, b): out = in * a + b
-            // b = 128*(1-a) p/ manter média aproximada
             bgTileSharp = bgTileSharp.linear(contrast, 128 * (1 - contrast));
         }
 
@@ -594,6 +610,7 @@ app.post('/api/export-collage', async (req, res) => {
             .raw()
             .toBuffer({ resolveWithObject: true });
 
+        // segurança: se por algum motivo o tamanho não bater, cai no fallback só com a foto
         if (
             bgInfo.width !== photoInfo.width ||
             bgInfo.height !== photoInfo.height
@@ -623,18 +640,43 @@ app.post('/api/export-collage', async (req, res) => {
             });
         }
 
-        // --- BLEND MANUAL FOTO + BACKGROUND (já filtrado) ---
+        // --- BLEND MANUAL FOTO + BACKGROUND (Revelação Texturizada) ---
+        const channels = bgInfo.channels || 3;
         const length = bgData.length;
         const out = Buffer.alloc(length);
-        const invAlpha = 1 - alpha;
 
-        for (let i = 0; i < length; i++) {
-            const mixed = Math.round(
-                bgData[i] * invAlpha + photoData[i] * alpha
-            );
-            out[i] = mixed;
+        for (let i = 0; i < length; i += channels) {
+            const br = bgData[i];
+            const bgc = bgData[i + 1];
+            const bb = bgData[i + 2];
+
+            const pr = photoData[i];
+            const pg = photoData[i + 1];
+            const pb = photoData[i + 2];
+
+            // 1) Base PB: converte o pedaço do fundo para escala de cinza (textura)
+            const gray = Math.round(br * 0.299 + bgc * 0.587 + bb * 0.114);
+
+            // 2) "Foto + textura": mistura um pouco do PB na foto
+            const texR = Math.round(pr * (1 - grayMix) + gray * grayMix);
+            const texG = Math.round(pg * (1 - grayMix) + gray * grayMix);
+            const texB = Math.round(pb * (1 - grayMix) + gray * grayMix);
+
+            // 3) Cobertura colorida: fundo por cima com tintAlpha (controlado por opacity + overlayStrength)
+            const r = Math.round(texR * (1 - tintAlpha) + br * tintAlpha);
+            const g = Math.round(texG * (1 - tintAlpha) + bgc * tintAlpha);
+            const b = Math.round(texB * (1 - tintAlpha) + bb * tintAlpha);
+
+            out[i] = r;
+            out[i + 1] = g;
+            out[i + 2] = b;
+
+            if (channels === 4) {
+                out[i + 3] = 255; // garante opaco
+            }
         }
 
+        // monta imagem final a partir do buffer texturizado
         let pipelineFinal = sharp(out, { raw: bgInfo });
 
         if (gridNumber) {
@@ -662,11 +704,13 @@ app.post('/api/export-collage', async (req, res) => {
         });
     } catch (error) {
         logToClients('Exportador: Erro CRÍTICO na composição.', 'error');
+        console.error(error);
         res
             .status(500)
             .json({ message: 'Erro na composição da imagem.' });
     }
 });
+
 
 // --- RELATÓRIO DE EXPORTS + CSV ---
 

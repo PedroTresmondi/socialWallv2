@@ -58,15 +58,60 @@ body::before {
     height: 100%;
     object-fit: cover;
     display: block;
+    position: relative;
+        z-index: 1;
+        /* fica entre a base PB e a camada colorida */
+    }
+    
+    /* --- REVELAÇÃO TEXTURIZADA NO TELÃO --- */
+    /* Cada slot recebe um "patch" do fundo, em PB (base) + colorido (overlay) */
+    
+    .image-container::before,
+    .image-container::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background-image: var(--wall-bg-image);
+        background-size: var(--slot-bg-size, cover);
+        background-position: var(--slot-bg-pos, center);
+        background-repeat: no-repeat;
+        pointer-events: none;
+    }
+    
+    /* Camada de baixo: pedaço PB do background (visível sempre) */
+    .image-container::before {
+        z-index: 0;
+        filter: grayscale(1) contrast(1.05) brightness(0.9);
+    }
+    
+    /* Camada de cima: mesmo patch colorido com opacidade,
+               para "tingir" a foto quando houver imagem no slot */
+    .image-container::after {
+        z-index: 2;
+        opacity: var(--slot-overlay-opacity, 0);
+        /* controlado via JS */
+        filter: var(--wall-bg-filter);
+        mix-blend-mode: soft-light;
+        transition: opacity 300ms ease;
 }
 
-/* Efeito Hero (Zoom e Brilho) */
+/* Número do grid sempre acima de tudo */
+.grid-slot-number {
+    z-index: 3;
+}
 .hero-active {
-    z-index: 10;
-    transform: scale(1.1);
-    box-shadow: 0 0 20px rgba(255, 255, 255, 0.5);
-    transition: transform 0.5s ease, box-shadow 0.5s ease;
-    border: 2px solid white;
+    z-index: 9999 !important;
+        position: relative !important;
+        overflow: visible !important;
+    
+        /* 🟢 Variáveis controladas pelo JS (com fallbacks) */
+        transform: scale(var(--hero-scale, 1.5)) !important;
+        transition: all var(--hero-transition, 0.5s) cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
+    
+        box-shadow: 0 30px 60px rgba(0, 0, 0, 0.9) !important;
+        border: 3px solid rgba(255, 255, 255, 0.9);
+        border-radius: 8px;
+        background-color: #000;
 }
 
 /* Remove scrollbars no Admin */
@@ -184,7 +229,7 @@ input[type=range]:hover::-webkit-slider-thumb {
     background: #818cf8;
 }
 
-/* --- EFEITO HERO --- */
+/* --- EFEITO HERO (versão nova, com !important) --- */
 .hero-active {
     z-index: 9999 !important; 
     position: relative !important;
