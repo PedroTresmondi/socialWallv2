@@ -9,7 +9,7 @@ echo Iniciando Backend e Frontend em janelas separadas...
 
 start "%BACKEND_TITLE%" /d . cmd /c "npm run dev:backend"
 
-start "%FRONTEND_TITLE%" /d . cmd /c "npm run dev:frontend"
+start "%FRONTEND_TITLE%" /d . cmd /c "npm run dev:frontend -- --host"
 
 echo.
 echo =======================================================
