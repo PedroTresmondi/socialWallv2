@@ -199,6 +199,40 @@ const getEls = () => ({
     configUploadInput: document.getElementById('config-upload-input')
 });
 
+function updateServerStatus(isOnline) {
+    const els = getEls();
+    const badge = els.serverStatusBadge;
+    if (!badge) return;
+
+    const dot = badge.querySelector('.status-dot');
+    const label = badge.querySelector('.status-label');
+
+    // Limpa classes básicas
+    badge.classList.remove(
+        'bg-red-900/60', 'text-red-200', 'border-red-500/60',
+        'bg-emerald-900/60', 'text-emerald-200', 'border-emerald-500/60'
+    );
+
+    if (isOnline) {
+        // ONLINE (verde)
+        badge.classList.add('bg-emerald-900/60', 'text-emerald-200', 'border-emerald-500/60');
+        if (dot) {
+            dot.classList.remove('bg-red-400');
+            dot.classList.add('bg-emerald-400');
+        }
+        if (label) label.textContent = 'Servidor ON';
+    } else {
+        // OFFLINE (vermelho)
+        badge.classList.add('bg-red-900/60', 'text-red-200', 'border-red-500/60');
+        if (dot) {
+            dot.classList.remove('bg-emerald-400');
+            dot.classList.add('bg-red-400');
+        }
+        if (label) label.textContent = 'Servidor OFF';
+    }
+}
+
+
 function showToast(msg, type = 'success') {
     const c = document.getElementById('toast-container'); if (!c) return;
     const t = document.createElement('div'); t.className = 'toast';
@@ -746,12 +780,12 @@ function renderGallery(images) {
         div.innerHTML = `
             <img src="${img.url}" class="w-full h-full object-cover">
             <div class="absolute inset-0 bg-black/80 hidden group-hover:flex flex-col items-center justify-center gap-2 transition-all backdrop-blur-sm">
-                ${isOnWall 
-            ? `<button onclick="actRem('${img.id}')" class="bg-red-600 text-white text-[10px] px-3 py-1 rounded">Remover</button>`
-            : isHidden 
-                ? `<button onclick="actRes('${img.id}')" class="bg-slate-500 text-white text-[10px] px-3 py-1 rounded">Restaurar</button>`
-                : `<button onclick="actBlk('${img.id}')" class="bg-red-900 text-white text-[10px] px-3 py-1 rounded">Bloquear</button>`
-                }
+                ${isOnWall
+                ? `<button onclick="actRem('${img.id}')" class="bg-red-600 text-white text-[10px] px-3 py-1 rounded">Remover</button>`
+                : isHidden
+                    ? `<button onclick="actRes('${img.id}')" class="bg-slate-500 text-white text-[10px] px-3 py-1 rounded">Restaurar</button>`
+                    : `<button onclick="actBlk('${img.id}')" class="bg-red-900 text-white text-[10px] px-3 py-1 rounded">Bloquear</button>`
+            }
             </div>
         `;
         els.gallery.appendChild(div);
@@ -760,30 +794,62 @@ function renderGallery(images) {
 
 window.actRem = (id) => { addHiddenImage(id); saveConfig(config); fetchGallery(); };
 window.actBlk = (id) => { addHiddenImage(id); saveConfig(config); fetchGallery(); };
-window.actRes = (id) => { 
+window.actRes = (id) => {
     let h = getHiddenImages().filter(x => x !== id);
     localStorage.setItem(HIDDEN_IMAGES_KEY, JSON.stringify(h));
     fetchGallery();
 };
 
+async function checkServerHealth() {
+    try {
+        const res = await fetch('http://localhost:3000/health');
+        updateServerStatus(res.ok);
+    } catch (e) {
+        updateServerStatus(false);
+    }
+}
+
 function initStatusMonitor() {
-    const el = document.getElementById('status-log');
-    if (!el) return;
+    const logEl = document.getElementById('status-log');
+
     const es = new EventSource('http://localhost:3000/events');
+
+    es.onopen = () => {
+        updateServerStatus(true);
+    };
+
+    es.onerror = () => {
+        updateServerStatus(false);
+    };
+
     es.onmessage = (e) => {
-        const d = JSON.parse(e.data);
-        const div = document.createElement('div');
-        div.className = d.type === 'error' ? 'text-red-400' : 'text-slate-300';
-        div.innerText = `[${d.time}] ${d.msg}`;
-        el.appendChild(div);
-        el.scrollTop = el.scrollHeight;
+        try {
+            const d = JSON.parse(e.data);
+
+            if (logEl) {
+                const div = document.createElement('div');
+                div.className = d.type === 'error' ? 'text-red-400' : 'text-slate-300';
+                div.innerText = `[${d.time}] ${d.msg}`;
+                logEl.appendChild(div);
+                logEl.scrollTop = logEl.scrollHeight;
+            }
+
+            if (d.type === 'error') {
+                updateServerStatus(false);
+            }
+        } catch (err) {
+            console.error('Erro ao processar evento SSE:', err);
+        }
     };
 }
+
 
 async function bootAdmin() {
     await restoreStateFromServer();
     config = loadConfig();
     initStatusMonitor();
+    checkServerHealth();
+    setInterval(checkServerHealth, 15000);
     updateUI();
     setupListeners();
     setInterval(fetchGallery, 3000);

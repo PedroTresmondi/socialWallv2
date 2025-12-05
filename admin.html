@@ -171,10 +171,6 @@
                 <div class="space-y-4">
                     <div class="space-y-2 pt-2 border-t border-slate-700/50 mt-4">
                         <label class="flex justify-between items-center cursor-pointer">
-                            <span class="text-xs font-bold text-indigo-400">Mostrar Posição da Fig. (Wall)</span>
-                            <input type="checkbox" id="show-grid-num" />
-                        </label>
-                        <label class="flex justify-between items-center cursor-pointer">
                             <span class="text-xs text-slate-300">Posição Aleatória</span>
                             <input type="checkbox" id="random-position" class="accent-indigo-500">
                         </label>
@@ -214,8 +210,8 @@
                         <span id="queue-count" class="font-bold text-2xl text-yellow-400">0</span>
                     </div>
                 </div>
-                </div>
-                </div>
+            </div>
+            </div>
     </div>
 
     <div class="max-w-7xl mx-auto px-6 pt-4">
@@ -591,6 +587,10 @@
                     <h3 class="text-pink-400 font-bold mb-4 uppercase text-xs tracking-wider">6. Export Souvenir</h3>
                     <div class="space-y-4">
                         <label class="flex justify-between items-center cursor-pointer">
+                            <span class="text-xs font-bold text-indigo-400">Mostrar Posição da Fig. (Wall)</span>
+                            <input type="checkbox" id="show-grid-num" />
+                            </label>
+                            <label class="flex justify-between items-center cursor-pointer">
                             <span class="text-xs font-bold text-white">Ativar Exportador</span>
                             <input type="checkbox" id="export-enabled" class="accent-pink-500">
                         </label>
@@ -615,38 +615,38 @@
                         <p class="text-[10px] text-slate-400 italic">
                             Dica: use valores a partir de 300px para melhor qualidade do souvenir.
                         </p>
-                        </div>
-                        </div>
-                        
-                        <div id="sec-preview" class="glass-panel p-5 rounded-xl mt-4">
-                            <h3 class="text-purple-400 font-bold mb-3 uppercase text-xs tracking-wider">
-                                Prévia do Souvenir
-                            </h3>
-                            <p class="text-[10px] text-slate-400 mb-3">
-                                Gere uma prévia usando a última foto encontrada (fila/local/Dropbox)
-                                para ver como o overlay e os filtros vão ficar antes de iniciar o telão.
-                            </p>
-                        
-                            <div class="grid grid-cols-2 gap-3">
-                                <div>
-                                    <p class="text-[10px] text-slate-400 mb-1">Foto original</p>
-                                    <div
-                                        class="aspect-square bg-slate-900/60 rounded-lg flex items-center justify-center overflow-hidden border border-slate-700">
-                                        <img id="preview-photo-original" class="w-full h-full object-cover hidden">
-                                        <span id="preview-photo-placeholder" class="text-[10px] text-slate-500 px-2 text-center">
-                                            Nenhuma foto carregada.
-                                        </span>
-                                    </div>
+                    </div>
+                    </div>
+                    
+                    <div id="sec-preview" class="glass-panel p-5 rounded-xl mt-4">
+                        <h3 class="text-purple-400 font-bold mb-3 uppercase text-xs tracking-wider">
+                            Prévia do Souvenir
+                        </h3>
+                        <p class="text-[10px] text-slate-400 mb-3">
+                            Gere uma prévia usando a última foto encontrada (fila/local/Dropbox)
+                            para ver como o overlay e os filtros vão ficar antes de iniciar o telão.
+                        </p>
+                    
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <p class="text-[10px] text-slate-400 mb-1">Foto original</p>
+                                <div
+                                    class="aspect-square bg-slate-900/60 rounded-lg flex items-center justify-center overflow-hidden border border-slate-700">
+                                    <img id="preview-photo-original" class="w-full h-full object-cover hidden">
+                                    <span id="preview-photo-placeholder" class="text-[10px] text-slate-500 px-2 text-center">
+                                        Nenhuma foto carregada.
+                                    </span>
+                                </div>
                                 </div>
                                 <div>
                                     <p class="text-[10px] text-slate-400 mb-1">Prévia do export</p>
                                     <div
                                         class="aspect-square bg-slate-900/60 rounded-lg flex items-center justify-center overflow-hidden border border-slate-700">
                                         <img id="preview-photo-export" class="w-full h-full object-cover hidden">
-                                        <span id="preview-export-placeholder" class="text-[10px] text-slate-500 px-2 text-center">
-                                            Clique em “Gerar prévia” para ver o resultado.
-                                        </span>
-                                    </div>
+                                <span id="preview-export-placeholder" class="text-[10px] text-slate-500 px-2 text-center">
+                                    Clique em “Gerar prévia” para ver o resultado.
+                                </span>
+                                </div>
                                 </div>
                     </div>
                     <button id="preview-generate-btn"
@@ -671,11 +671,11 @@
                             <div>
                                 <label class="flex items-center gap-2 cursor-pointer mb-2">
                                     <input type="checkbox" id="entry-animation" class="accent-yellow-500 w-3 h-3">
-                                    <span class="text-xs font-bold text-yellow-400">✨ Animação de Chegada (Hero)</span>
+                                    <span class="text-xs font-bold text-yellow-400"> Animação de Chegada (Hero)</span>
                                 </label>
-                            
+
                                 <div id="entry-settings" class="pl-5 space-y-3">
-                            
+
                                     <div>
                                         <div class="flex justify-between text-[9px] text-slate-400">
                                             <span>Tempo em Destaque</span>
@@ -684,7 +684,7 @@
                                         <input type="range" id="entry-duration" min="1" max="10" step="0.5" value="3"
                                             class="w-full accent-yellow-500 h-1">
                                     </div>
-                            
+
                                     <div>
                                         <div class="flex justify-between text-[9px] text-slate-400">
                                             <span>Velocidade Animação</span>
@@ -693,7 +693,7 @@
                                         <input type="range" id="entry-speed" min="0.1" max="2" step="0.1" value="0.5"
                                             class="w-full accent-yellow-500 h-1">
                                     </div>
-                            
+
                                     <div>
                                         <div class="flex justify-between text-[9px] text-slate-400">
                                             <span>Tamanho (Zoom)</span>
@@ -702,10 +702,10 @@
                                         <input type="range" id="entry-scale" min="1.1" max="3.0" step="0.1" value="1.5"
                                             class="w-full accent-yellow-500 h-1">
                                     </div>
-                            
+
                                 </div>
                             </div>
-                            
+
                             <hr class="border-slate-700/50">
 
                             <div>
