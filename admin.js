@@ -150,6 +150,7 @@ const getEls = () => ({
     tabRemoved: document.getElementById('tab-removed'),
 
     // Preview Grid
+    gridPreviewWrapper: document.getElementById('grid-preview-wrapper'),
     gridPreviewInner: document.getElementById('grid-preview-inner'),
     gridPreviewLabel: document.getElementById('grid-preview-label'),
 
@@ -382,12 +383,38 @@ const change = (key, val, showMsg = false) => {
 function renderGridPreview() {
     const els = getEls();
     const container = els.gridPreviewInner;
-    if (!container) return;
+    const wrapper = els.gridPreviewWrapper;
+    if (!container || !wrapper) return;
 
     const cols = config.cols || 1;
     const rows = config.rows || 1;
     const totalSlots = cols * rows;
 
+    // Resolução "real" do telão (vem do wizard/config)
+    const screenW = config.screenWidth || 1920;
+    const screenH = config.screenHeight || 1080;
+
+    // Wrapper fixo (30vw x 30vh já está no HTML, aqui só garantimos o comportamento)
+    wrapper.style.position = 'relative';
+    wrapper.style.overflow = 'hidden';
+
+    // Área interna: tamanho real do wall
+    container.style.position = 'absolute';
+    container.style.top = '0';
+    container.style.left = '0';
+    container.style.width = screenW + 'px';
+    container.style.height = screenH + 'px';
+
+    // Calcula o scale para caber dentro de 30vw x 30vh
+    const rect = wrapper.getBoundingClientRect();
+    const scaleX = rect.width / screenW;
+    const scaleY = rect.height / screenH;
+    const scale = Math.min(scaleX, scaleY);
+
+    container.style.transformOrigin = 'top left';
+    container.style.transform = `scale(${scale})`;
+
+    // --- Estilos de grid e background continuam como antes ---
     let gridState = [];
     try {
         gridState = JSON.parse(localStorage.getItem(GRID_STATE_KEY) || '[]');
@@ -468,9 +495,10 @@ function renderGridPreview() {
 
     if (els.gridPreviewLabel) {
         const freeCount = totalSlots - usedCount;
-        els.gridPreviewLabel.textContent = `${cols}x${rows} • Slots: ${totalSlots} • Ocupados: ${usedCount} • Livres: ${freeCount}`;
+        els.gridPreviewLabel.textContent = `${cols}x${rows} • Slots: ${totalSlots} • Ocupados: ${usedCount} • Livres: ${freeCount} • Resolução: ${screenW}x${screenH}`;
     }
 }
+
 
 function updateStats(overrideTotal = null) {
     const els = getEls();
@@ -609,39 +637,58 @@ function updateUI() {
     renderGridPreview();
 }
 
+async function startDropboxMonitor() {
+    const token = config.dropboxToken;
+    const folder = config.dropboxFolder;
+
+    if (!token) {
+        showToast('Informe o Access Token do Dropbox antes de sincronizar.', 'error');
+        return;
+    }
+
+    try {
+        const res = await fetch('http://localhost:3000/api/dropbox/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                token,
+                folder
+            })
+        });
+
+        if (!res.ok) {
+            throw new Error('Resposta HTTP não OK');
+        }
+
+        const data = await res.json();
+        if (data && data.success) {
+            showToast('Monitor Dropbox iniciado com sucesso.');
+        } else {
+            showToast('Não foi possível iniciar o monitor do Dropbox.', 'error');
+        }
+    } catch (err) {
+        console.error('Erro ao iniciar monitor Dropbox:', err);
+        showToast('Erro ao iniciar monitor do Dropbox.', 'error');
+    }
+}
+
+
+
 function setupListeners() {
     const els = getEls();
 
+    // === PRÉVIA DO SOUVENIR ===
     if (els.previewGenerateBtn) {
         els.previewGenerateBtn.addEventListener('click', generatePreview);
     }
 
-    // 🟢 LISTENERS QUE FALTAVAM PARA SALVAR AS CONFIGURAÇÕES
-    if (els.entryDuration) {
-        els.entryDuration.addEventListener('input', e => {
-            const val = parseFloat(e.target.value) * 1000; // converte s para ms
-            change('entryDuration', val);
-        });
-    }
-    if (els.entrySpeed) {
-        els.entrySpeed.addEventListener('input', e => {
-            const val = parseFloat(e.target.value) * 1000; // converte s para ms
-            change('entryAnimSpeed', val);
-        });
-    }
-    if (els.entryScale) {
-        els.entryScale.addEventListener('input', e => {
-            change('entryScale', parseFloat(e.target.value));
-        });
-    }
-
-    // Layout
+    // layout
     if (els.layoutMode) els.layoutMode.addEventListener('change', e => change('layoutMode', e.target.value, true));
     const numBind = (el, key) => el?.addEventListener('input', e => {
         const v = parseInt(e.target.value || '0', 10);
-        if (!Number.isNaN(v)) change(key, v);
+        if (Number.isNaN(v)) return;
+        change(key, v);
     });
-
     numBind(els.targetCount, 'targetCount');
     numBind(els.gridCols, 'cols');
     numBind(els.gridRows, 'rows');
@@ -654,14 +701,58 @@ function setupListeners() {
     numBind(els.bgBlur, 'bgBlur');
     numBind(els.heroInterval, 'heroInterval');
     numBind(els.idleTimeout, 'idleTimeout');
+    // NOVO: força do overlay do background no souvenir
     numBind(els.overlayStrength, 'overlayStrength');
+
+    // export
     numBind(els.exportW, 'exportWidth');
     numBind(els.exportH, 'exportHeight');
 
-    if (els.opacityIn) els.opacityIn.addEventListener('input', e => change('opacity', parseFloat(e.target.value) / 100));
-    if (els.processInterval) els.processInterval.addEventListener('input', e => change('processInterval', parseFloat(e.target.value || '0') * 1000));
+    if (els.opacityIn)
+        els.opacityIn.addEventListener('input', e => change('opacity', parseFloat(e.target.value) / 100));
+    if (els.animType)
+        els.animType.addEventListener('change', e => change('animType', e.target.value));
+    if (els.animDur)
+        els.animDur.addEventListener('input', e => {
+            const v = parseInt(e.target.value || '0', 10);
+            if (!Number.isNaN(v)) change('animDuration', v);
+        });
+    if (els.processInterval)
+        els.processInterval.addEventListener('input', e => {
+            const v = parseFloat(e.target.value || '0');
+            if (!Number.isNaN(v)) change('processInterval', v * 1000);
+        });
+
+    // === NOVO: sliders da animação de chegada (Hero) ===
+    if (els.entryDuration) {
+        els.entryDuration.addEventListener('input', e => {
+            const seconds = parseFloat(e.target.value || '0');
+            if (!Number.isNaN(seconds)) {
+                change('entryDuration', seconds * 1000); // s -> ms
+            }
+        });
+    }
+
+    if (els.entrySpeed) {
+        els.entrySpeed.addEventListener('input', e => {
+            const seconds = parseFloat(e.target.value || '0');
+            if (!Number.isNaN(seconds)) {
+                change('entryAnimSpeed', seconds * 1000); // s -> ms
+            }
+        });
+    }
+
+    if (els.entryScale) {
+        els.entryScale.addEventListener('input', e => {
+            const scale = parseFloat(e.target.value || '0');
+            if (!Number.isNaN(scale)) {
+                change('entryScale', scale);
+            }
+        });
+    }
 
     const chkBind = (el, key) => el?.addEventListener('change', e => change(key, e.target.checked, true));
+    // randCheck será tratado separadamente para sincronizar clones
     chkBind(els.persistCheck, 'persistGrid');
     chkBind(els.removalCheck, 'removalMode');
     chkBind(els.heroCheck, 'heroEnabled');
@@ -671,27 +762,23 @@ function setupListeners() {
     chkBind(els.exportCheck, 'exportEnabled');
     chkBind(els.exportWithBgCheck, 'exportWithBackground');
 
-    // Sincroniza checkboxes de Entry Animation
+    // === NOVO: sincroniza entryAnimation do header e da seção comportamento ===
     const entryChecks = [els.entryAnimation, els.entryAnimationMini].filter(Boolean);
-    entryChecks.forEach(chk => {
-        chk.addEventListener('change', (e) => {
-            const checked = e.target.checked;
-            change('entryAnimation', checked, true);
-            entryChecks.forEach(other => { if (other) other.checked = checked; });
-        });
-    });
-
-    // Sincroniza checkboxes de Random Position
-    const randChecks = document.querySelectorAll('input#random-position');
-    if (randChecks.length > 0) {
-        randChecks.forEach(chk => {
+    if (entryChecks.length > 0) {
+        entryChecks.forEach(chk => {
             chk.addEventListener('change', (e) => {
                 const checked = e.target.checked;
-                change('randomPosition', checked, true);
-                randChecks.forEach(other => { if (other !== e.target) other.checked = checked; });
+                change('entryAnimation', checked, true);
+                entryChecks.forEach(other => {
+                    if (other && other !== e.target) other.checked = checked;
+                });
             });
         });
     }
+
+    if (els.logoUrl) els.logoUrl.addEventListener('change', e => change('logoUrl', e.target.value));
+    if (els.logoPosition) els.logoPosition.addEventListener('change', e => change('logoPosition', e.target.value));
+    if (els.tickerText) els.tickerText.addEventListener('change', e => change('tickerText', e.target.value));
 
     if (els.bgFileInput) {
         els.bgFileInput.addEventListener('change', async (e) => {
@@ -701,30 +788,276 @@ function setupListeners() {
             try {
                 const res = await fetch('http://localhost:3000/api/upload-bg', { method: 'POST', body: formData });
                 if (res.ok) {
-                    const data = await res.json();
-                    change('backgroundUrl', data.url);
-                    els.bgStatus.textContent = "Sucesso!";
-                    showToast("Fundo Atualizado");
+                    const data = await res.json(); change('backgroundUrl', data.url);
+                    els.bgStatus.textContent = "Sucesso!"; showToast("Fundo Atualizado");
                 } else els.bgStatus.textContent = "Erro.";
             } catch (err) { els.bgStatus.textContent = "Erro conexao."; }
         });
     }
 
-    if (els.toggleBtn) els.toggleBtn.addEventListener('click', () => {
-        change('processing', !config.processing);
-        showToast(config.processing ? "Iniciado" : "Pausado");
-    });
+    if (els.modeDropboxBtn)
+        els.modeDropboxBtn.addEventListener('click', () => {
+            config.sourceMode = 'dropbox'; saveConfig(config); updateUI(); startDropboxMonitor(); fetchGallery(); showToast("Modo Dropbox");
+        });
+    if (els.modeLocalBtn)
+        els.modeLocalBtn.addEventListener('click', () => {
+            config.sourceMode = 'local'; saveConfig(config); updateUI(); fetchGallery(); showToast("Modo Local");
+        });
+    if (els.dropboxSyncBtn)
+        els.dropboxSyncBtn.addEventListener('click', () => {
+            config.dropboxToken = els.dropboxToken.value;
+            config.dropboxFolder = els.dropboxFolder.value;
+            saveConfig(config);
+            startDropboxMonitor();
+            showToast("Sincronizando...");
+        });
+    if (els.toggleBtn)
+        els.toggleBtn.addEventListener('click', () => {
+            change('processing', !config.processing);
+            showToast(config.processing ? "Iniciado" : "Pausado");
+        });
+    if (els.refreshBtn)
+        els.refreshBtn.addEventListener('click', () => { fetchGallery(); showToast("Lista Atualizada"); });
+    if (els.clearHiddenBtn)
+        els.clearHiddenBtn.addEventListener('click', () => { clearHiddenImages(); fetchGallery(); showToast("Bloqueios Limpos"); });
 
-    if (els.refreshBtn) els.refreshBtn.addEventListener('click', () => { fetchGallery(); showToast("Lista Atualizada"); });
-    if (els.clearHiddenBtn) els.clearHiddenBtn.addEventListener('click', () => { clearHiddenImages(); fetchGallery(); showToast("Bloqueios Limpos"); });
-
+    // abas
     const setTab = (tab) => { currentFilter = tab; updateUI(); fetchGallery(); };
     if (els.tabQueue) els.tabQueue.addEventListener('click', () => setTab('queue'));
     if (els.tabWall) els.tabWall.addEventListener('click', () => setTab('wall'));
     if (els.tabRemoved) els.tabRemoved.addEventListener('click', () => setTab('removed'));
 
-    // ... (listeners de wizard e backup omitidos para brevidade, mas devem estar aqui se você usar) ...
+    // --- Wizard: Setup rápido ---
+    if (els.wizardEventNameInput)
+        els.wizardEventNameInput.addEventListener('input', e => change('eventName', e.target.value));
+
+    if (els.screenWidth)
+        els.screenWidth.addEventListener('input', e => change('screenWidth', parseInt(e.target.value || '0') || 0));
+
+    if (els.screenHeight)
+        els.screenHeight.addEventListener('input', e => change('screenHeight', parseInt(e.target.value || '0') || 0));
+
+    if (els.screenPreset1080p)
+        els.screenPreset1080p.addEventListener('click', () => {
+            change('screenWidth', 1920);
+            change('screenHeight', 1080, true);
+        });
+
+    if (els.screenPreset4k)
+        els.screenPreset4k.addEventListener('click', () => {
+            change('screenWidth', 3840);
+            change('screenHeight', 2160, true);
+        });
+
+    if (els.screenPresetCustom)
+        els.screenPresetCustom.addEventListener('click', () => {
+            const w = parseInt(els.screenWidth?.value || '0') || 0;
+            const h = parseInt(els.screenHeight?.value || '0') || 0;
+            if (!w || !h) {
+                showToast('Preencha largura e altura personalizadas.', 'error');
+            } else {
+                change('screenWidth', w);
+                change('screenHeight', h, true);
+            }
+        });
+
+    if (els.wizardLayoutTargetBtn)
+        els.wizardLayoutTargetBtn.addEventListener('click', () => change('layoutMode', 'target', true));
+    if (els.wizardLayoutAutoFitBtn)
+        els.wizardLayoutAutoFitBtn.addEventListener('click', () => change('layoutMode', 'auto-fit', true));
+    if (els.wizardLayoutManualBtn)
+        els.wizardLayoutManualBtn.addEventListener('click', () => change('layoutMode', 'manual', true));
+
+    if (els.wizardExportBaseFolder)
+        els.wizardExportBaseFolder.addEventListener('input', e => change('exportBaseFolder', e.target.value));
+
+    // Navegação do wizard (topo)
+    const goToStep = (step) => {
+        wizardCurrentStep = Math.min(4, Math.max(1, step));
+        updateWizardStepUI();
+    };
+    if (els.wizardStep1Btn) els.wizardStep1Btn.addEventListener('click', () => goToStep(1));
+    if (els.wizardStep2Btn) els.wizardStep2Btn.addEventListener('click', () => goToStep(2));
+    if (els.wizardStep3Btn) els.wizardStep3Btn.addEventListener('click', () => goToStep(3));
+    if (els.wizardStep4Btn) els.wizardStep4Btn.addEventListener('click', () => goToStep(4));
+
+    if (els.wizardPrev)
+        els.wizardPrev.addEventListener('click', () => goToStep(wizardCurrentStep - 1));
+    if (els.wizardNext)
+        els.wizardNext.addEventListener('click', () => goToStep(wizardCurrentStep + 1));
+
+    // Sincroniza controles duplicados de "Posição Aleatória" (header + seção comportamento)
+    const randChecks = document.querySelectorAll('input#random-position');
+    if (randChecks.length > 0) {
+        randChecks.forEach(chk => {
+            chk.addEventListener('change', (e) => {
+                const checked = e.target.checked;
+                change('randomPosition', checked, true);
+                randChecks.forEach(other => {
+                    if (other !== e.target) other.checked = checked;
+                });
+            });
+        });
+    }
+
+    // Navegação de seções (mini-menu)
+    if (els.sectionNavBtns && els.sectionNavBtns.forEach) {
+        Array.from(els.sectionNavBtns).forEach(btn => {
+            btn.addEventListener('click', () => {
+                const targetSel = btn.getAttribute('data-target');
+                if (!targetSel) return;
+                const target = document.querySelector(targetSel);
+                if (!target) return;
+                const headerOffset = 80;
+                const rect = target.getBoundingClientRect();
+                const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+                window.scrollTo({
+                    top: rect.top + scrollTop - headerOffset,
+                    behavior: 'smooth'
+                });
+            });
+        });
+    }
+
+    // Modo Setup / Operação
+    if (els.modeSetupBtn)
+        els.modeSetupBtn.addEventListener('click', () => {
+            config.adminMode = 'setup';
+            saveConfig(config);
+            updateUI();
+            showToast('Modo Setup ativado');
+        });
+
+    if (els.modeLiveBtn)
+        els.modeLiveBtn.addEventListener('click', () => {
+            config.adminMode = 'live';
+            saveConfig(config);
+            updateUI();
+            showToast('Modo Operação ativado');
+        });
+
+    // Backup de configuração
+    if (els.configDownloadBtn)
+        els.configDownloadBtn.addEventListener('click', () => {
+            try {
+                const dataStr = JSON.stringify(config, null, 2);
+                const blob = new Blob([dataStr], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'socialwall-config.json';
+                document.body.appendChild(a);
+                a.click();
+                setTimeout(() => {
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                }, 0);
+                showToast('Configuração exportada.');
+            } catch {
+                showToast('Erro ao gerar arquivo de configuração.', 'error');
+            }
+        });
+
+    if (els.configUploadInput)
+        els.configUploadInput.addEventListener('change', (e) => {
+            const file = e.target.files && e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                try {
+                    const txt = ev.target.result;
+                    const parsed = JSON.parse(txt);
+                    if (!parsed || typeof parsed !== 'object') {
+                        showToast('Arquivo inválido.', 'error');
+                        return;
+                    }
+                    // merge gentil: preserva chaves desconhecidas atuais também
+                    config = { ...config, ...parsed };
+                    saveConfig(config);
+                    updateUI();
+                    updateStats();
+                    showToast('Configuração aplicada com sucesso.');
+                } catch {
+                    showToast('Erro ao ler config.json. Verifique o arquivo.', 'error');
+                } finally {
+                    e.target.value = '';
+                }
+            };
+            reader.readAsText(file, 'utf-8');
+        });
+
+    // Limpar log
+    if (els.statusLogClearBtn)
+        els.statusLogClearBtn.addEventListener('click', () => {
+            const log = els.statusLog;
+            if (log) log.innerHTML = '';
+            errorCount = 0;
+            if (els.statusErrorCounter) els.statusErrorCounter.textContent = 'Erros: 0';
+            if (els.statusLastError) {
+                els.statusLastError.textContent = '';
+                els.statusLastError.classList.add('hidden');
+            }
+        });
+
+    // Relatório de evento
+    if (els.eventReportRefresh)
+        els.eventReportRefresh.addEventListener('click', () => {
+            loadEventReport(true);
+        });
+
+    if (els.downloadCsvBtn)
+        els.downloadCsvBtn.addEventListener('click', () => {
+            window.open('http://localhost:3000/exports/exports.csv', '_blank');
+        });
+
+    if (els.cleanupExportsBtn)
+        els.cleanupExportsBtn.addEventListener('click', async () => {
+            if (!confirm('Remover exports antigos (mais de 1 dia)?\n\nIsso NÃO remove as fotos originais, apenas os arquivos de souvenir já gerados.'))
+                return;
+            try {
+                const res = await fetch('http://localhost:3000/exports/cleanup', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ days: 1 })
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    showToast(`Exports limpos: ${data.removed} arquivo(s).`);
+                    loadEventReport();
+                } else {
+                    showToast('Erro ao limpar exports.', 'error');
+                }
+            } catch {
+                showToast('Falha de conexão ao limpar exports.', 'error');
+            }
+        });
+
+    if (els.resetEventBtn)
+        els.resetEventBtn.addEventListener('click', async () => {
+            if (!confirm(
+                'Tem certeza que deseja resetar o evento?\n\nIsso irá:\n• Limpar layout atual (cols/rows, gaps etc.)\n• Limpar estado local do grid\n• Limpar bloqueios locais (lixeira)\n\nAs fotos originais e exports já gerados NÃO serão apagados.'
+            )) return;
+            try {
+                const res = await fetch('http://localhost:3000/api/reset-event', {
+                    method: 'POST'
+                });
+                if (!res.ok) throw new Error('Erro HTTP');
+
+                // limpa estado local
+                localStorage.removeItem(CONFIG_KEY);
+                localStorage.removeItem(GRID_STATE_KEY);
+                localStorage.removeItem(HIDDEN_IMAGES_KEY);
+
+                showToast('Evento resetado. Recarregando...', 'success');
+                setTimeout(() => {
+                    location.reload();
+                }, 800);
+            } catch {
+                showToast('Erro ao resetar evento.', 'error');
+            }
+        });
 }
+
 
 async function fetchGallery() {
     const source = config.sourceMode || 'local';
