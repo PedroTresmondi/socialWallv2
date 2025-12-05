@@ -445,7 +445,6 @@ function updateSlotNumberOverlay(div, slotIndex, hasImage) {
         'grid-slot-number absolute top-1 left-1 text-white text-[11px] font-semibold ' +
         'drop-shadow-md pointer-events-none select-none';
 
-    label.textContent = `#${gridNumber}`;
 
     if (!existing) {
         div.appendChild(label);
