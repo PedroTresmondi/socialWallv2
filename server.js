@@ -52,6 +52,32 @@ app.get('/events', (req, res) => {
     });
 });
 
+
+const wallSnapshotStorage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        const base = (req.body.exportBaseFolder || '').trim() || 'wall-snapshots';
+        const safeBase = base.replace(/[^a-z0-9_\-\/]/gi, '_');
+
+        const dest = path.join(EXPORT_DIR, safeBase);
+        if (!fs.existsSync(dest)) fs.mkdirSync(dest, { recursive: true });
+
+        cb(null, dest);
+    },
+    filename: (req, file, cb) => {
+        const eventName = (req.body.eventName || 'evento')
+            .toString()
+            .trim()
+            .replace(/[^a-z0-9_\-]/gi, '_');
+
+        const ts = new Date().toISOString().replace(/[:.]/g, '-');
+
+        cb(null, `${eventName || 'evento'}-wall-${ts}.png`);
+    }
+});
+
+
+const uploadWallSnapshot = multer({ storage: wallSnapshotStorage });
+
 // Função de log formatada para o admin.js
 function logToClients(msg, type = 'log') {
     const time = new Date().toLocaleTimeString('pt-BR', {
@@ -294,6 +320,32 @@ app.post('/api/state', (req, res) => {
 });
 
 // --- ROTAS API BÁSICAS ---
+
+app.post('/api/upload-wall-snapshot', uploadWallSnapshot.single('file'), (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ success: false, error: 'Nenhum arquivo recebido.' });
+        }
+
+        const relativeFolder = path
+            .relative(EXPORT_DIR, req.file.destination)
+            .replace(/\\/g, '/');
+
+        const publicUrl = `/exports/${relativeFolder}/${req.file.filename}`;
+
+        return res.json({
+            success: true,
+            url: publicUrl,
+            filename: req.file.filename
+        });
+    } catch (e) {
+        console.error('[Wall Snapshot] Erro ao salvar snapshot:', e);
+        return res.status(500).json({ success: false, error: 'Erro interno ao salvar snapshot.' });
+    }
+});
+
+
+
 
 // 1. Upload de fotos (Admin)
 app.post('/api/upload', uploadPhotos.array('photos', 20), async (req, res) => {

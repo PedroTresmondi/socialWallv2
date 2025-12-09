@@ -36,13 +36,12 @@ export const defaultConfig = {
     // Comportamento
     randomPosition: true,
     animType: 'pop', animDuration: 600,
-    showGridNumber: false,          // 🔢 mostrar número do slot no telão
+    showGridNumber: false,
 
-    entryAnimation: true,   // Liga/Desliga
-    entryDuration: 3000,    // Tempo total destacada (ms)
-    entryAnimSpeed: 500,    // Velocidade da transição (ms)
+    entryAnimation: true,
+    entryDuration: 3000,
+    entryAnimSpeed: 500,
     entryScale: 1.5,
-    // Modos
     heroEnabled: false, heroInterval: 10,
     idleEnabled: false, idleTimeout: 30,
     processing: true,
@@ -59,7 +58,10 @@ export const defaultConfig = {
     exportHeight: 300,
     exportWithBackground: true,
     exportBaseFolder: 'exports',
-    overlayStrength: 100
+    overlayStrength: 100,
+
+    layoutLocked: false
+
 };
 
 export function computeGridFromTarget(target, aspectRatio = 16 / 9) {

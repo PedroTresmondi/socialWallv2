@@ -53,6 +53,12 @@ const getEls = () => ({
     groupManual: document.getElementById('group-manual'),
     gapIn: document.getElementById('grid-gap'),
     opacityIn: document.getElementById('image-opacity'),
+    layoutLockCheck: document.getElementById('layout-lock'),
+    captureWallBtn: document.getElementById('capture-wall-btn'),
+
+    captureWallAdminBtn: document.getElementById('capture-wall-admin-btn'),
+
+
 
     // Bg / Filtros
     bgFileInput: document.getElementById('bg-file-input'),
@@ -233,6 +239,29 @@ function updateServerStatus(isOnline) {
     }
 }
 
+function initAdminBroadcastHandlers() {
+    if (!syncChannel) return;
+
+    syncChannel.addEventListener('message', (event) => {
+        const msg = event.data || {};
+        if (msg.type === 'CAPTURE_WALL_DONE') {
+            const url = msg.data && msg.data.url;
+            if (url) {
+                showToast('Mural capturado com sucesso! Arquivo salvo em ' + url);
+                console.log('[Admin] Snapshot do mural em:', url);
+            } else {
+                showToast('Mural capturado com sucesso.', 'success');
+            }
+        }
+
+        if (msg.type === 'CAPTURE_WALL_ERROR') {
+            const message = (msg.data && msg.data.message) || 'Erro desconhecido ao capturar mural.';
+            showToast(message, 'error');
+        }
+    });
+}
+
+
 
 function showToast(msg, type = 'success') {
     const c = document.getElementById('toast-container'); if (!c) return;
@@ -339,6 +368,9 @@ async function generatePreview() {
 
 // --- CALCULO GRID ---
 function calculateEstimatedGrid() {
+    // Se o layout estiver travado, não mexe em cols/rows automaticamente
+    if (config.layoutLocked) return;
+
     if (config.layoutMode === 'target') {
         const t = Math.max(1, config.targetCount || 20);
         const r = 16 / 9;
@@ -347,6 +379,7 @@ function calculateEstimatedGrid() {
         saveConfig(config);
     }
 }
+
 
 // Sincronia
 setInterval(() => {
@@ -536,6 +569,10 @@ function updateUI() {
     if (els.opacityIn) els.opacityIn.value = (config.opacity || 1) * 100;
     if (els.opacityVal) els.opacityVal.textContent = Math.round((config.opacity || 1) * 100) + '%';
 
+    if (els.layoutMode) els.layoutMode.value = config.layoutMode || 'target';
+    if (els.layoutLockCheck) els.layoutLockCheck.checked = !!config.layoutLocked;
+
+
     // Bg
     if (els.bgBrightness) els.bgBrightness.value = config.bgBrightness;
     if (els.bgBrightnessVal) els.bgBrightnessVal.textContent = config.bgBrightness + '%';
@@ -672,6 +709,21 @@ async function startDropboxMonitor() {
     }
 }
 
+function requestWallSnapshotFromAdmin() {
+    try {
+        if (!syncChannel) {
+            showToast('Canal de sincronização não disponível.', 'error');
+            return;
+        }
+
+        syncChannel.postMessage({ type: 'CAPTURE_WALL' });
+        showToast('Pedido de captura enviado para o mural.');
+    } catch (e) {
+        console.error('[Admin] Erro ao enviar CAPTURE_WALL:', e);
+        showToast('Erro ao enviar pedido de captura.', 'error');
+    }
+}
+
 
 
 function setupListeners() {
@@ -680,6 +732,10 @@ function setupListeners() {
     // === PRÉVIA DO SOUVENIR ===
     if (els.previewGenerateBtn) {
         els.previewGenerateBtn.addEventListener('click', generatePreview);
+    }
+
+    if (els.captureWallAdminBtn) {
+        els.captureWallAdminBtn.addEventListener('click', requestWallSnapshotFromAdmin);
     }
 
     // layout
@@ -761,6 +817,7 @@ function setupListeners() {
     chkBind(els.showGridNumCheck, 'showGridNumber');
     chkBind(els.exportCheck, 'exportEnabled');
     chkBind(els.exportWithBgCheck, 'exportWithBackground');
+    chkBind(els.layoutLockCheck, 'layoutLocked');
 
     // === NOVO: sincroniza entryAnimation do header e da seção comportamento ===
     const entryChecks = [els.entryAnimation, els.entryAnimationMini].filter(Boolean);
@@ -1133,6 +1190,45 @@ window.actRes = (id) => {
     fetchGallery();
 };
 
+async function loadEventReport(showToastFlag = false) {
+    const els = getEls();
+    if (!els.eventReportTotal) return;
+
+    try {
+        const res = await fetch('http://localhost:3000/exports/events', { cache: 'no-store' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        const summary = Array.isArray(data) && data.length ? data[0] : null;
+
+        if (!summary || !summary.totalExports) {
+            els.eventReportTotal.textContent = '0';
+            els.eventReportFirst.textContent = '--';
+            els.eventReportLast.textContent = '--';
+            els.eventReportAvg.textContent = '--';
+            if (els.eventReportEmpty) els.eventReportEmpty.classList.remove('hidden');
+        } else {
+            els.eventReportTotal.textContent = summary.totalExports;
+            const first = new Date(summary.firstExportAt);
+            const last = new Date(summary.lastExportAt);
+            els.eventReportFirst.textContent = first.toLocaleString('pt-BR');
+            els.eventReportLast.textContent = last.toLocaleString('pt-BR');
+            els.eventReportAvg.textContent = Math.round(summary.avgIntervalMs) + ' ms';
+
+            if (els.eventReportEmpty) els.eventReportEmpty.classList.add('hidden');
+        }
+
+        if (showToastFlag) showToast('Relatório atualizado.');
+    } catch (e) {
+        els.eventReportTotal.textContent = '0';
+        els.eventReportFirst.textContent = '--';
+        els.eventReportLast.textContent = '--';
+        els.eventReportAvg.textContent = '--';
+        if (els.eventReportEmpty) els.eventReportEmpty.classList.remove('hidden');
+        if (showToastFlag) showToast('Erro ao carregar relatório.', 'error');
+    }
+}
+
+
 async function checkServerHealth() {
     try {
         const res = await fetch('http://localhost:3000/health');
@@ -1182,10 +1278,12 @@ async function bootAdmin() {
     config = loadConfig();
     initStatusMonitor();
     checkServerHealth();
-    setInterval(checkServerHealth, 15000);
+    setInterval(checkServerHealth, 10000);
+    initAdminBroadcastHandlers();
+
     updateUI();
     setupListeners();
-    setInterval(fetchGallery, 3000);
+    setInterval(fetchGallery, 1000);
     fetchGallery();
 }
 

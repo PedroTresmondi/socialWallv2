@@ -174,6 +174,9 @@ if (syncChannel) {
         if (event.data && event.data.type === 'HIDDEN_UPDATE') {
             setTimeout(processQueueStep, 50);
         }
+        if (msg.type === 'CAPTURE_WALL') {
+            captureFullWallSnapshot(true);
+        }
     };
 }
 
@@ -198,6 +201,14 @@ setInterval(() => {
 
 // --- LAYOUT ---
 function calculateGridDimensions() {
+    // 🔒 Se o layout estiver travado, respeita sempre cols/rows atuais
+    if (config.layoutLocked) {
+        return {
+            cols: config.cols || 4,
+            rows: config.rows || 3
+        };
+    }
+
     const W = window.innerWidth;
     const H = window.innerHeight;
 
@@ -237,6 +248,7 @@ function calculateGridDimensions() {
 
     return { cols: config.cols || 4, rows: config.rows || 3 };
 }
+
 
 function applyLayoutAndEffects() {
     if (!socialWall) return;
@@ -321,6 +333,12 @@ function setupLocalListeners() {
     if (els.openBtn) els.openBtn.addEventListener('click', toggleMenu);
     if (els.closeBtn) els.closeBtn.addEventListener('click', toggleMenu);
     if (els.closeX) els.closeX.addEventListener('click', toggleMenu);
+
+    if (els.captureWallBtn) {
+        els.captureWallBtn.addEventListener('click', () => {
+            captureFullWallSnapshot();
+        });
+    }
 
     window.addEventListener('keydown', (e) => {
         if (e.key.toLowerCase() === 'c' && e.target.tagName !== 'INPUT') toggleMenu();
@@ -428,6 +446,96 @@ function saveGridState(state) {
         scheduleStateSync();
     }
 }
+
+async function captureFullWallSnapshot(shouldNotifyChannel = false) {
+    if (!socialWall) {
+        console.error('[Wall Snapshot] socialWall não encontrado.');
+        if (shouldNotifyChannel && syncChannel) {
+            try {
+                syncChannel.postMessage({
+                    type: 'CAPTURE_WALL_ERROR',
+                    data: { message: 'socialWall não encontrado' }
+                });
+            } catch { }
+        }
+        return;
+    }
+
+    if (typeof window.html2canvas !== 'function') {
+        console.error('[Wall Snapshot] html2canvas não carregado.');
+        if (shouldNotifyChannel && syncChannel) {
+            try {
+                syncChannel.postMessage({
+                    type: 'CAPTURE_WALL_ERROR',
+                    data: { message: 'html2canvas não carregado' }
+                });
+            } catch { }
+        }
+        return;
+    }
+
+    // Verifica preenchimento (opcionalmente exige full)
+    const totalSlots = (config.cols || 1) * (config.rows || 1);
+    let gridState = loadGridState();
+    if (!Array.isArray(gridState)) gridState = [];
+    const filled = gridState.filter(id => id).length;
+
+    console.log(`[Wall Snapshot] Slots preenchidos: ${filled}/${totalSlots}`);
+
+    try {
+        const canvas = await window.html2canvas(socialWall, {
+            useCORS: true,
+            backgroundColor: null,
+            scale: 1
+        });
+
+        const blob = await new Promise((resolve, reject) => {
+            canvas.toBlob((b) => {
+                if (b) resolve(b);
+                else reject(new Error('Falha ao gerar blob do mural.'));
+            }, 'image/png', 1.0);
+        });
+
+        const formData = new FormData();
+        const filename = `wall-${Date.now()}.png`;
+        formData.append('file', blob, filename);
+        formData.append('eventName', config.eventName || '');
+        formData.append('exportBaseFolder', config.exportBaseFolder || '');
+
+        const res = await fetch('http://localhost:3000/api/upload-wall-snapshot', {
+            method: 'POST',
+            body: formData
+        });
+
+        if (!res.ok) {
+            throw new Error('HTTP ' + res.status);
+        }
+
+        const data = await res.json();
+        console.log('[Wall Snapshot] Salvo em:', data.url);
+
+        if (shouldNotifyChannel && syncChannel) {
+            try {
+                syncChannel.postMessage({
+                    type: 'CAPTURE_WALL_DONE',
+                    data: { url: data.url }
+                });
+            } catch { }
+        }
+    } catch (e) {
+        console.error('[Wall Snapshot] Erro ao capturar mural:', e);
+        if (shouldNotifyChannel && syncChannel) {
+            try {
+                syncChannel.postMessage({
+                    type: 'CAPTURE_WALL_ERROR',
+                    data: { message: e.message || 'Erro desconhecido' }
+                });
+            } catch { }
+        }
+    }
+}
+
+
 
 // --- AUXILIARES DE RENDERIZAÇÃO ---
 function updateSlotNumberOverlay(div, slotIndex, hasImage) {

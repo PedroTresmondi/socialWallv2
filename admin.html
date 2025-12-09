@@ -484,6 +484,10 @@
                             <span id="gap-value">8px</span>
                         </label>
                         <input type="range" id="grid-gap" min="0" max="50" class="w-full accent-indigo-500">
+                        <label class="flex items-center gap-2 text-xs text-slate-300 mt-2">
+                            <input type="checkbox" id="layout-lock" class="rounded border-slate-600">
+                            Travar autoajuste de layout
+                        </label>
                     </div>
                     <div class="mt-4">
                         <label class="text-[10px] uppercase font-bold text-slate-500 block mb-1">
@@ -616,9 +620,14 @@
                         <p class="text-[10px] text-slate-400 italic">
                             Dica: use valores a partir de 300px para melhor qualidade do souvenir.
                         </p>
+<button id="capture-wall-admin-btn"
+    class="w-full mt-3 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg font-bold text-xs text-white shadow">
+    Capturar mural completo (print)
+</button>
+
                     </div>
                 </div>
-                
+
                 <div id="sec-preview" class="glass-panel p-5 rounded-xl mt-4">
                     <h3 class="text-purple-400 font-bold mb-3 uppercase text-xs tracking-wider">
                         Prévia do Souvenir
@@ -627,7 +636,7 @@
                         Gere uma prévia usando a última foto encontrada (fila/local/Dropbox)
                         para ver como o overlay e os filtros vão ficar antes de iniciar o telão.
                     </p>
-                
+
                     <div class="grid grid-cols-2 gap-3">
                         <div>
                             <p class="text-[10px] text-slate-400 mb-1">Foto original</p>
@@ -637,18 +646,18 @@
                                 <span id="preview-photo-placeholder" class="text-[10px] text-slate-500 px-2 text-center">
                                     Nenhuma foto carregada.
                                 </span>
-                                </div>
-                                </div>
-                                <div>
-                                    <p class="text-[10px] text-slate-400 mb-1">Prévia do export</p>
-                                    <div
-                                        class="aspect-square bg-slate-900/60 rounded-lg flex items-center justify-center overflow-hidden border border-slate-700">
-                                        <img id="preview-photo-export" class="w-full h-full object-cover hidden">
+                            </div>
+                            </div>
+                            <div>
+                                <p class="text-[10px] text-slate-400 mb-1">Prévia do export</p>
+                                <div
+                                    class="aspect-square bg-slate-900/60 rounded-lg flex items-center justify-center overflow-hidden border border-slate-700">
+                                    <img id="preview-photo-export" class="w-full h-full object-cover hidden">
                                 <span id="preview-export-placeholder" class="text-[10px] text-slate-500 px-2 text-center">
                                     Clique em “Gerar prévia” para ver o resultado.
                                 </span>
                             </div>
-                            </div>
+                        </div>
                     </div>
                     <button id="preview-generate-btn"
                         class="mt-3 w-full py-2 text-xs font-bold rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white shadow">

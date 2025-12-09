@@ -11,8 +11,8 @@
 
     <!-- CONTAINER PRINCIPAL -->
     <div id="main-container">
-<div id="social-wall" class="w-full h-full"></div>
-</div>
+        <div id="social-wall" class="w-full h-full"></div>
+        </div>
 
 
 
@@ -102,6 +102,10 @@
 
         <div class="config-section">
             <h3 class="text-sm font-bold text-indigo-300 mb-3 uppercase">Opções</h3>
+            <button id="capture-wall-btn"
+                class="w-full mt-2 p-3 bg-indigo-600 hover:bg-indigo-500 rounded-lg font-bold text-sm text-white shadow">
+                Capturar mural completo
+            </button>
             <div class="flex items-center mb-2"><input type="checkbox" id="random-position" class="mr-2"><label
                     class="text-xs">Aleatório</label></div>
             <div class="flex items-center mb-2"><input type="checkbox" id="persist-state" class="mr-2"><label
@@ -124,6 +128,7 @@
         <button id="close-config" class="w-full p-3 bg-red-600 hover:bg-red-700 rounded font-bold mt-2">Fechar</button>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
     <script type="module" src="/main.js"></script>
 </body>
 
