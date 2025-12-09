@@ -104,23 +104,23 @@ function createGridNumberOverlay(gridNumber) {
     const safeNumber = String(gridNumber);
 
     const svg = `
-        <svg width="160" height="60" xmlns="http://www.w3.org/2000/svg">
-            <style>
-                text {
-                    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-                }
-            </style>
-            <text x="20" y="40"
-                  font-size="30"
-                  fill="#ffffff"
-                  fill-opacity="0.9"
-                  stroke="#000000"
-                  stroke-width="1.5"
-                  paint-order="stroke">
-                #${safeNumber}
-            </text>
-        </svg>
-    `;
+        <svg width="160" height="60" xmlns="http://www.w3.org/2000/svg">
+            <style>
+                text {
+                    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+                }
+            </style>
+            <text x="20" y="40"
+                  font-size="30"
+                  fill="#ffffff"
+                  fill-opacity="0.9"
+                  stroke="#000000"
+                  stroke-width="1.5"
+                  paint-order="stroke">
+                #${safeNumber}
+            </text>
+        </svg>
+    `;
 
     return Buffer.from(svg);
 }
@@ -137,24 +137,38 @@ async function monitorDropbox(token, folderPath) {
     dbxMonitorActive = true;
     currentDbxToken = token;
     const dbx = new Dropbox({ accessToken: token, fetch: fetch });
-    let pathFolder = folderPath === '/' ? '' : folderPath;
-    if (pathFolder && !pathFolder.startsWith('/')) pathFolder = '/' + pathFolder;
 
-    logToClients(`🚀 Iniciando Monitor Dropbox (Long Polling)...`, 'system');
+    // Normaliza o caminho para a API do Dropbox.
+    let pathFolder = (folderPath || '').trim();
+    if (pathFolder === '/') {
+        pathFolder = '';
+    } else if (pathFolder && !pathFolder.startsWith('/')) {
+        pathFolder = '/' + pathFolder;
+    }
+
+    logToClients(`🚀 Iniciando Monitor Dropbox (Long Polling) no caminho: ${pathFolder || '(Raiz)'}...`, 'system');
 
     try {
+        logToClients(`[DBX Debug] Obtendo cursor inicial para o caminho: '${pathFolder}'`, 'debug');
+
         let response = await dbx.filesListFolderGetLatestCursor({
             path: pathFolder,
             recursive: false
         });
         let cursor = response.result.cursor;
+
         const listRes = await dbx.filesListFolder({
             path: pathFolder,
             recursive: false
         });
+
+        logToClients(`[DBX Debug] Encontrado ${listRes.result.entries.length} itens na primeira listagem.`, 'debug');
+
         await processEntries(dbx, listRes.result.entries);
 
         while (dbxMonitorActive && currentDbxToken === token) {
+            logToClients(`[DBX Debug] Iniciando Longpoll com cursor: ${cursor.substring(0, 10)}...`, 'debug');
+
             const pollResult = await dbx.filesListFolderLongpoll({
                 cursor: cursor,
                 timeout: 30
@@ -165,6 +179,7 @@ async function monitorDropbox(token, folderPath) {
                 let listResult = await dbx.filesListFolderContinue({ cursor: cursor });
 
                 while (hasMore) {
+                    logToClients(`[DBX Debug] Processando ${listResult.result.entries.length} alterações.`, 'debug');
                     await processEntries(dbx, listResult.result.entries);
                     hasMore = listResult.result.has_more;
                     cursor = listResult.result.cursor;
@@ -191,11 +206,26 @@ async function monitorDropbox(token, folderPath) {
 }
 
 async function processEntries(dbx, entries) {
+    logToClients(`[DBX Debug] Total de entradas para processar: ${entries.length}`, 'debug');
+
+    // Loga todos os itens que o Dropbox enviou.
+    entries.forEach(e => {
+        if (e['.tag'] === 'file') {
+            logToClients(`[DBX Debug] -> Arquivo detectado: ${e.name} (${path.extname(e.name)})`, 'debug');
+        } else if (e['.tag'] === 'folder') {
+            logToClients(`[DBX Debug] -> Pasta detectada: ${e.name}`, 'debug');
+        }
+    });
+
+    // Filtro de arquivos de imagem (adicionado .heic para maior compatibilidade).
     const imageEntries = entries.filter(
         e =>
             e['.tag'] === 'file' &&
-            e.name.match(/\.(jpg|jpeg|png|gif|webp)$/i)
+            e.name.match(/\.(jpg|jpeg|png|gif|webp|heic)$/i)
     );
+
+    logToClients(`[DBX Debug] Arquivos de imagem que passaram no filtro: ${imageEntries.length}`, 'debug');
+
     for (const file of imageEntries) {
         try {
             const fileIdPart = file.id.replace(/[^a-zA-Z0-9]/gi, '');
@@ -204,7 +234,10 @@ async function processEntries(dbx, entries) {
                 .readdirSync(PROCESSED_IMAGES_DIR)
                 .find(f => f.includes(fileIdPart));
 
-            if (existing) continue;
+            if (existing) {
+                logToClients(`[DBX Debug] ⚠️ Ignorando ${file.name}. Já existe em processed-images (ID: ${fileIdPart}).`, 'warn');
+                continue;
+            }
 
             const safeName = path
                 .basename(file.name, path.extname(file.name))
@@ -214,8 +247,12 @@ async function processEntries(dbx, entries) {
             )}`;
             const outputPath = path.join(PROCESSED_IMAGES_DIR, fileName);
 
+            logToClients(`[DBX Debug] Tentando download: ${file.path_lower} -> ${outputPath}`, 'debug');
+
             const dl = await dbx.filesDownload({ path: file.path_lower });
             const buffer = dl.result.fileBinary;
+
+            logToClients(`[DBX Debug] Download concluído. Tamanho: ${buffer.length} bytes. Redimensionando...`, 'debug');
 
             await sharp(buffer)
                 .resize(800, 800, { fit: 'cover' })
@@ -227,14 +264,14 @@ async function processEntries(dbx, entries) {
             );
         } catch (err) {
             logToClients(
-                `Erro ao processar arquivo do Dropbox (${file.name}): ${err.message}`,
+                `❌ Erro ao processar arquivo do Dropbox (${file.name}): ${err.message}`,
                 'error'
             );
         }
     }
 }
 
-// --- WATCHER DA PASTA CAMERA_INPUT ---
+// --- WATCHER DA PASTA CAMERA_INPUT (PARA UPLOADS LOCAIS OU VIA SCRIPT) ---
 const watcher = chokidar.watch(CAMERA_INPUT_DIR, {
     ignored: /(^|[\/\\])\../,
     persistent: true,
@@ -502,7 +539,7 @@ app.post('/api/export-collage', async (req, res) => {
 
     // quanto de "tinta" de fundo entra por cima da foto
     // regra: quanto menor a opacidade da foto, maior a intensidade da tinta
-    // se opacity = 1  -> tintAlpha = 0 (sem overlay)
+    // se opacity = 1  -> tintAlpha = 0 (sem overlay)
     // se opacity = 0.4 e overlayStrength = 100 -> tintAlpha = 0.6
     let tintAlpha = (1 - photoAlpha) * overlayFactor;
     if (tintAlpha < 0) tintAlpha = 0;
