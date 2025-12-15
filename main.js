@@ -25,6 +25,13 @@ config.bgContrast = config.bgContrast ?? 100;
 config.bgSaturate = config.bgSaturate ?? 100;
 config.bgBlur = config.bgBlur ?? 0;
 
+
+// Defaults: animação de chegada (fly/outline)
+config.entryFlyToSlot = config.entryFlyToSlot ?? false;
+config.entryBorderWidth = config.entryBorderWidth ?? 2;
+config.entryBorderOpacity = config.entryBorderOpacity ?? 18;
+config.entryBorderRadius = config.entryBorderRadius ?? 14;
+
 // Garante default e normalização da intensidade do overlay (0–100)
 let ov = config.overlayStrength;
 if (typeof ov !== 'number') ov = parseInt(ov || '100', 10);
@@ -174,9 +181,9 @@ if (syncChannel) {
         if (event.data && event.data.type === 'HIDDEN_UPDATE') {
             setTimeout(processQueueStep, 50);
         }
-        /*  if (msg.type === 'CAPTURE_WALL') {
-             captureFullWallSnapshot(true);
-         } */
+        if (msg.type === 'CAPTURE_WALL') {
+            captureFullWallSnapshot(true);
+        }
     };
 }
 
@@ -198,6 +205,141 @@ setInterval(() => {
         }
     }
 }, 1000);
+
+
+const SLOT_SELECTOR = '.grid-cell, .slot, .tile, .photo-slot, [data-slot]';
+
+function getAnySlotDivForTest() {
+    const el = document.querySelector(SLOT_SELECTOR);
+    return el || null;
+}
+
+function runBaseEntryAnim(el) {
+    const type = (config.animType || 'pop');
+    const dur = Math.max(80, Number(config.animDuration || 600));
+
+    // Web Animations API (bem estável em Chrome)
+    if (type === 'fade') {
+        el.animate(
+            [{ opacity: 0 }, { opacity: 1 }],
+            { duration: dur, easing: 'ease-out', fill: 'both' }
+        );
+        return dur;
+    }
+
+    if (type === 'slide-up') {
+        el.animate(
+            [{ transform: 'translateY(18px)', opacity: 0 }, { transform: 'translateY(0px)', opacity: 1 }],
+            { duration: dur, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'both' }
+        );
+        return dur;
+    }
+
+    if (type === 'rotate') {
+        el.animate(
+            [{ transform: 'scale(0.75) rotate(-6deg)', opacity: 0 }, { transform: 'scale(1) rotate(0deg)', opacity: 1 }],
+            { duration: dur, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'both' }
+        );
+        return dur;
+    }
+
+    // default: pop
+    el.animate(
+        [{ transform: 'scale(0.7)', opacity: 0 }, { transform: 'scale(1)', opacity: 1 }],
+        { duration: dur, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'both' }
+    );
+    return dur;
+}
+
+async function handleTestEffectFromAdmin(data) {
+    const effect = data?.effect;
+    const url = data?.url;
+    if (!effect || !url) return;
+
+    const slot = getAnySlotDivForTest();
+    if (!slot) {
+        console.warn('[Main] TEST_EFFECT: nenhum slot encontrado. Ajuste SLOT_SELECTOR.');
+        return;
+    }
+
+    // cria um overlay dentro do slot (não destrói seu conteúdo real)
+    const wrap = document.createElement('div');
+    wrap.style.position = 'absolute';
+    wrap.style.inset = '0';
+    wrap.style.zIndex = '999999';
+    wrap.style.pointerEvents = 'none';
+
+    // garante que o slot aceita posicionamento absoluto do overlay
+    const prevPos = slot.style.position;
+    if (!prevPos || prevPos === 'static') slot.style.position = 'relative';
+
+    const img = document.createElement('img');
+    img.src = url;
+    img.alt = '';
+    img.style.width = '100%';
+    img.style.height = '100%';
+    img.style.objectFit = 'cover';
+    img.style.display = 'block';
+    img.style.opacity = '1';
+
+    wrap.appendChild(img);
+    slot.appendChild(wrap);
+
+    try {
+        if (effect === 'entry') {
+            const ms = runBaseEntryAnim(img);
+            // segura um pouquinho pra você ver e remove
+            setTimeout(() => wrap.remove(), ms + 600);
+            return;
+        }
+
+        // (opcional) se você também quiser suportar fly/hero depois:
+        if (effect === 'fly' && typeof playEntryFlyToSlot === 'function') {
+            // Reaproveita sua função existente:
+            // Faz o ghost voar até o slot; depois remove overlay
+            await playEntryFlyToSlot(url, slot);
+            setTimeout(() => wrap.remove(), 300);
+            return;
+        }
+
+        if (effect === 'hero') {
+            // hero simples (zoom + glow) só pra teste rápido
+            const dur = Math.max(200, Number(config.entryAnimSpeed || 500));
+            const hold = Math.max(600, Number(config.entryDuration || 3000));
+
+            img.animate(
+                [{ transform: 'scale(1)', filter: 'none' }, { transform: `scale(${config.entryScale || 1.5})`, filter: 'drop-shadow(0 20px 60px rgba(0,0,0,.55))' }],
+                { duration: dur, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'forwards' }
+            );
+
+            setTimeout(() => {
+                img.animate(
+                    [{ transform: `scale(${config.entryScale || 1.5})` }, { transform: 'scale(1)' }],
+                    { duration: dur, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'forwards' }
+                );
+                setTimeout(() => wrap.remove(), dur + 80);
+            }, hold);
+
+            return;
+        }
+
+        // fallback
+        setTimeout(() => wrap.remove(), 1200);
+    } catch (e) {
+        console.error('[Main] TEST_EFFECT error:', e);
+        wrap.remove();
+    }
+}
+
+// ✅ Listener do canal (garante que o admin consegue disparar)
+if (syncChannel) {
+    syncChannel.addEventListener('message', (event) => {
+        const msg = event.data || {};
+        if (msg.type === 'TEST_EFFECT') {
+            handleTestEffectFromAdmin(msg.data);
+        }
+    });
+}
 
 // --- LAYOUT ---
 function calculateGridDimensions() {
@@ -588,113 +730,113 @@ function updateSlotBackgroundSlice(div, slotIndex, hasImage) {
     div.style.setProperty('--slot-overlay-opacity', String(finalAlpha));
 }
 
+// --- RENDER CURRENT STATE ---
 
-// --- ANIMAÇÃO: foto aparece no centro e "caminha" até o slot ---
-function playEntryFlyToSlot(src, targetDiv) {
-    return new Promise((resolve) => {
-        try {
-            const rect = targetDiv.getBoundingClientRect();
-            if (!rect || rect.width <= 1 || rect.height <= 1) return resolve();
 
-            const vw = window.innerWidth || 1;
-            const vh = window.innerHeight || 1;
+function applyEntryHighlight(div) {
+    if (!div || !config.entryAnimation) return;
 
-            // Config
-            const holdMs = Math.max(0, parseInt(config.entryDuration || 0, 10) || 0);
-            const moveMs = Math.max(0, parseInt(config.entryAnimSpeed || 0, 10) || 0);
-            const scale = (typeof config.entryScale === 'number' ? config.entryScale : parseFloat(config.entryScale || '1.5')) || 1.5;
+    const scale = config.entryScale || 1.5;
+    const speed = config.entryAnimSpeed || 500; // ms
+    const duration = config.entryDuration || 3000; // ms
 
-            // Overlay
-            const overlay = document.createElement('div');
-            overlay.style.position = 'fixed';
-            overlay.style.left = '0';
-            overlay.style.top = '0';
-            overlay.style.width = '100vw';
-            overlay.style.height = '100vh';
-            overlay.style.pointerEvents = 'none';
-            overlay.style.zIndex = '999999';
-            overlay.style.overflow = 'visible';
+    const bw = Number(config.entryBorderWidth ?? 0);
+    const bo = Number(config.entryBorderOpacity ?? 0) / 100;
+    const br = Number(config.entryBorderRadius ?? 0);
 
-            const ghost = document.createElement('img');
-            ghost.src = src;
-            ghost.alt = '';
-            ghost.style.position = 'absolute';
-            ghost.style.objectFit = 'cover';
-            ghost.style.opacity = '0';
-            ghost.style.borderRadius = '14px';
-            ghost.style.border = '1px solid rgba(255,255,255,0.22)';
+    div.style.setProperty('--hero-scale', scale);
+    div.style.setProperty('--hero-transition', `${speed}ms`);
+    div.classList.add('hero-active');
 
-            ghost.style.boxShadow = `
-  0 20px 70px rgba(0,0,0,0.55),
-  0 0 0 1px rgba(255,255,255,0.10)
-`;
-            ghost.style.willChange = 'left, top, width, height, opacity, transform';
+    if (bw > 0 && bo > 0) {
+        div.style.outline = `${bw}px solid rgba(255,255,255,${bo})`;
+        // negativo para "entrar" no slot (evita cortar fora)
+        const off = -Math.min(4, Math.max(1, Math.round(bw / 2)));
+        div.style.outlineOffset = `${off}px`;
+    } else {
+        div.style.outline = '';
+        div.style.outlineOffset = '';
+    }
 
-            overlay.appendChild(ghost);
-            document.body.appendChild(overlay);
+    if (br > 0) div.style.borderRadius = `${br}px`;
 
-            // Tamanho inicial (grande no centro) baseado no slot + escala (com clamp na viewport)
-            const targetW = Math.max(1, rect.width);
-            const targetH = Math.max(1, rect.height);
-            const aspect = targetW / targetH;
+    setTimeout(() => {
+        div.classList.remove('hero-active');
+        div.style.outline = '';
+        div.style.outlineOffset = '';
+        div.style.borderRadius = '';
 
-            let startW = targetW * Math.max(1, scale) * 2; // "bem grande"
-            let startH = startW / aspect;
-
-            const maxW = vw * 0.85;
-            const maxH = vh * 0.85;
-            const k = Math.min(maxW / startW, maxH / startH, 1);
-            startW *= k;
-            startH *= k;
-
-            const startLeft = Math.round((vw - startW) / 2);
-            const startTop = Math.round((vh - startH) / 2);
-
-            ghost.style.left = startLeft + 'px';
-            ghost.style.top = startTop + 'px';
-            ghost.style.width = Math.round(startW) + 'px';
-            ghost.style.height = Math.round(startH) + 'px';
-
-            // Fade-in rápido
-            requestAnimationFrame(() => {
-                ghost.style.transition = 'opacity 220ms ease-out';
-                ghost.style.opacity = '1';
-            });
-
-            const fly = () => {
-                const left = Math.round(rect.left);
-                const top = Math.round(rect.top);
-                const w = Math.round(rect.width);
-                const h = Math.round(rect.height);
-
-                ghost.style.transition =
-                    `left ${moveMs}ms cubic-bezier(0.2, 0.8, 0.2, 1), ` +
-                    `top ${moveMs}ms cubic-bezier(0.2, 0.8, 0.2, 1), ` +
-                    `width ${moveMs}ms cubic-bezier(0.2, 0.8, 0.2, 1), ` +
-                    `height ${moveMs}ms cubic-bezier(0.2, 0.8, 0.2, 1)`;
-
-                ghost.style.left = left + 'px';
-                ghost.style.top = top + 'px';
-                ghost.style.width = w + 'px';
-                ghost.style.height = h + 'px';
-
-                // Finaliza
-                setTimeout(() => {
-                    try { overlay.remove(); } catch { }
-                    resolve();
-                }, moveMs + 30);
-            };
-
-            if (holdMs > 0) setTimeout(fly, holdMs);
-            else fly();
-        } catch (e) {
-            resolve();
-        }
-    });
+        setTimeout(() => {
+            div.style.removeProperty('--hero-scale');
+            div.style.removeProperty('--hero-transition');
+        }, speed + 100);
+    }, duration);
 }
 
+function playEntryFlyToSlot(url, targetDiv) {
+    return new Promise((resolve) => {
+        if (!targetDiv) return resolve();
 
-// --- RENDER CURRENT STATE ---
+        const rect = targetDiv.getBoundingClientRect();
+        const cx = window.innerWidth / 2;
+        const cy = window.innerHeight / 2;
+        const tx = rect.left + rect.width / 2;
+        const ty = rect.top + rect.height / 2;
+        const dx = tx - cx;
+        const dy = ty - cy;
+
+        const ghost = document.createElement('img');
+        ghost.src = url;
+        ghost.alt = '';
+        ghost.className = 'entry-fly-ghost';
+        ghost.style.position = 'fixed';
+        ghost.style.left = '50%';
+        ghost.style.top = '50%';
+        ghost.style.width = `${Math.max(1, rect.width)}px`;
+        ghost.style.height = `${Math.max(1, rect.height)}px`;
+        ghost.style.objectFit = 'cover';
+        ghost.style.transformOrigin = 'center center';
+        ghost.style.pointerEvents = 'none';
+        ghost.style.zIndex = '999999';
+        ghost.style.opacity = '1';
+
+        const bw = Number(config.entryBorderWidth ?? 0);
+        const bo = Number(config.entryBorderOpacity ?? 0) / 100;
+        const br = Number(config.entryBorderRadius ?? 0);
+
+        if (bw > 0 && bo > 0) ghost.style.border = `${bw}px solid rgba(255,255,255,${bo})`;
+        if (br > 0) ghost.style.borderRadius = `${br}px`;
+
+        ghost.style.boxShadow = '0 20px 70px rgba(0,0,0,0.55)';
+
+        const speed = config.entryAnimSpeed || 500; // ms
+        const hold = Math.min(1200, Math.max(350, Math.round((config.entryDuration || 3000) * 0.25)));
+
+        const centerScaleRaw = Number(config.entryFlyCenterScale ?? 2.8);
+        const centerScale = Math.min(8, Math.max(1, centerScaleRaw));
+
+
+        ghost.style.transition = `transform ${speed}ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease-out`;
+        ghost.style.transform = `translate(-50%, -50%) scale(${centerScale})`;
+
+        document.body.appendChild(ghost);
+
+        // Espera 1 frame pra garantir que entrou no DOM
+        requestAnimationFrame(() => {
+            setTimeout(() => {
+                ghost.style.transform = `translate(-50%, -50%) translate(${dx}px, ${dy}px) scale(1)`;
+
+                setTimeout(() => {
+                    ghost.style.opacity = '0';
+                    setTimeout(() => {
+                        ghost.remove();
+                        resolve();
+                    }, 220);
+                }, speed + 20);
+            }, hold);
+        });
+    });
+}
 
 
 function renderCurrentState(gridState, imageMap) {
@@ -735,68 +877,27 @@ function renderCurrentState(gridState, imageMap) {
         requestAnimationFrame(() => {
             requestAnimationFrame(() => {
                 const useFly = !!config.entryFlyToSlot;
+
                 if (!useFly) {
                     img.style.opacity = config.opacity;
                 } else {
                     // fica invisível no slot até o "fly" terminar
                     img.style.opacity = '0';
                 }
+
                 img.style.transform = 'scale(1) translateY(0) rotate(0)';
 
-                // Se fly estiver ligado, executa a animação do centro até o slot e só então revela a imagem
                 if (useFly) {
                     playEntryFlyToSlot(data.url, div).then(() => {
                         img.style.opacity = config.opacity;
-                        // opcional: ainda dá o highlight no slot ao chegar
-                        if (config.entryAnimation) {
-                            const scale = config.entryScale || 1.5;
-                            const speed = config.entryAnimSpeed || 500; // ms
-                            const duration = config.entryDuration || 3000; // ms
-                            div.style.setProperty('--hero-scale', scale);
-                            div.style.setProperty('--hero-transition', `${speed}ms`);
-                            div.classList.add('hero-active');
-                            div.style.outline = '10px solid rgba(255,255,255,0.18)';
-                            div.style.outlineOffset = '-2px';
-                            div.style.borderRadius = '36px';
-                            setTimeout(() => {
-                                div.classList.remove('hero-active');
-                                div.style.outline = '';
-                                div.style.outlineOffset = '';
-                                div.style.borderRadius = '';
-                                setTimeout(() => {
-                                    div.style.removeProperty('--hero-scale');
-                                    div.style.removeProperty('--hero-transition');
-                                }, speed + 100);
-                            }, duration);
-                        }
+                        applyEntryHighlight(div);
                     });
+                } else {
+                    applyEntryHighlight(div);
                 }
+                // 🟢 FIM NOVA LÓGICA 🟢
 
-                // 🟢 LÓGICA ATUALIZADA DA ANIMAÇÃO DE CHEGADA 🟢
-                if (config.entryAnimation && !useFly) {
-                    // 1. Define as variáveis CSS dinamicamente para este slot
-                    const scale = config.entryScale || 1.5;
-                    const speed = config.entryAnimSpeed || 500; // ms
-                    const duration = config.entryDuration || 3000; // ms
-
-                    div.style.setProperty('--hero-scale', scale);
-                    div.style.setProperty('--hero-transition', `${speed}ms`);
-
-                    // 2. Adiciona a classe
-                    div.classList.add('hero-active');
-
-                    // 3. Remove após o tempo configurado
-                    setTimeout(() => {
-                        div.classList.remove('hero-active');
-
-                        // Limpeza opcional das variáveis após animação
-                        setTimeout(() => {
-                            div.style.removeProperty('--hero-scale');
-                            div.style.removeProperty('--hero-transition');
-                        }, speed + 100); // espera a transição de saída terminar
-
-                    }, duration);
-                }
+                // dispara export...
                 const slotDiv = slots[i];
                 setTimeout(() => {
                     triggerSouvenirExport(idInSlot, slotDiv, config, i);

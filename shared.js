@@ -39,10 +39,14 @@ export const defaultConfig = {
     showGridNumber: false,
 
     entryAnimation: true,
-    entryFlyToSlot: false,
     entryDuration: 3000,
     entryAnimSpeed: 500,
     entryScale: 1.5,
+
+    entryFlyToSlot: false,
+    entryBorderWidth: 2,
+    entryBorderOpacity: 18,
+    entryBorderRadius: 14,
     heroEnabled: false, heroInterval: 10,
     idleEnabled: false, idleTimeout: 30,
     processing: true,

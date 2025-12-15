@@ -19,11 +19,15 @@ let config = loadConfig();
 config.overlayStrength = typeof config.overlayStrength === 'number' ? config.overlayStrength : 100;
 config.showGridNumber = config.showGridNumber ?? false;
 config.entryAnimation = config.entryAnimation ?? true;
-config.entryFlyToSlot = config.entryFlyToSlot ?? false;
 // Novos defaults de animação
 config.entryDuration = config.entryDuration || 3000;
 config.entryAnimSpeed = config.entryAnimSpeed || 500;
 config.entryScale = config.entryScale || 1.5;
+
+config.entryFlyToSlot = config.entryFlyToSlot ?? false;
+config.entryBorderWidth = config.entryBorderWidth ?? 2;
+config.entryBorderOpacity = config.entryBorderOpacity ?? 18;
+config.entryBorderRadius = config.entryBorderRadius ?? 14;
 
 config.eventName = config.eventName || '';
 config.screenWidth = config.screenWidth || 1920;
@@ -59,6 +63,26 @@ const getEls = () => ({
 
     captureWallAdminBtn: document.getElementById('capture-wall-admin-btn'),
 
+    entryFlyCenterScale: document.getElementById('entry-fly-center-scale'),
+    entryFlyCenterScaleVal: document.getElementById('entry-fly-center-scale-val'),
+
+
+    // Search + Resumo ativo
+    adminSearch: document.getElementById('admin-search'),
+    activeSummaryCard: document.getElementById('active-summary-card'),
+    activeSummaryBody: document.getElementById('active-summary-body'),
+
+    // Random mini (ID corrigido no HTML)
+    randCheckMini: document.getElementById('random-position-mini'),
+
+    // Subtabs de comportamento (HTML novo)
+    behaviorTabButtons: document.querySelectorAll('[data-behavior-tab-btn]'),
+    behaviorTabPanels: document.querySelectorAll('[data-behavior-tab-panel]'),
+
+    // Botões “Testar efeito”
+    testEntryBtn: document.getElementById('test-entry-btn'),
+    testFlyBtn: document.getElementById('test-fly-btn'),
+    testHeroBtn: document.getElementById('test-hero-btn'),
 
 
     // Bg / Filtros
@@ -94,20 +118,24 @@ const getEls = () => ({
     // Animação de Chegada
     entryAnimation: document.getElementById('entry-animation'),
     entryAnimationMini: document.getElementById('entry-animation-mini'),
-
-    // Novo: foto no centro -> voa/caminha até o slot
-    entryFlyToSlot: document.getElementById('entry-fly-to-slot'),
-    entryFlyToSlotMini: document.getElementById('entry-fly-to-slot-mini'),
-
     // 🟢 NOVOS ELEMENTOS CAPTURADOS
     entryDuration: document.getElementById('entry-duration'),
     entrySpeed: document.getElementById('entry-speed'),
     entryScale: document.getElementById('entry-scale'),
+    entryFlyToSlot: document.getElementById('entry-fly-to-slot'),
+    entryFlyToSlotMini: document.getElementById('entry-fly-to-slot-mini'),
+    entryBorderWidth: document.getElementById('entry-border-width'),
+    entryBorderOpacity: document.getElementById('entry-border-opacity'),
+    entryBorderRadius: document.getElementById('entry-border-radius'),
+
 
     // Labels
     entryDurationVal: document.getElementById('entry-duration-val'),
     entrySpeedVal: document.getElementById('entry-speed-val'),
     entryScaleVal: document.getElementById('entry-scale-val'),
+    entryBorderWidthVal: document.getElementById('entry-border-width-val'),
+    entryBorderOpacityVal: document.getElementById('entry-border-opacity-val'),
+    entryBorderRadiusVal: document.getElementById('entry-border-radius-val'),
 
     gapVal: document.getElementById('gap-value'),
     opacityVal: document.getElementById('opacity-value'),
@@ -615,8 +643,6 @@ function updateUI() {
     // 🟢 UI UPDATE: Entry Animation
     if (els.entryAnimation) els.entryAnimation.checked = config.entryAnimation;
     if (els.entryAnimationMini) els.entryAnimationMini.checked = config.entryAnimation;
-    if (els.entryFlyToSlot) els.entryFlyToSlot.checked = !!config.entryFlyToSlot;
-    if (els.entryFlyToSlotMini) els.entryFlyToSlotMini.checked = !!config.entryFlyToSlot;
 
     if (els.entryDuration) els.entryDuration.value = (config.entryDuration || 3000) / 1000;
     if (els.entryDurationVal) els.entryDurationVal.textContent = ((config.entryDuration || 3000) / 1000) + 's';
@@ -626,6 +652,19 @@ function updateUI() {
 
     if (els.entryScale) els.entryScale.value = config.entryScale || 1.5;
     if (els.entryScaleVal) els.entryScaleVal.textContent = (config.entryScale || 1.5) + 'x';
+
+    // 🟢 UI UPDATE: Fly-to-slot + Borda do destaque
+    if (els.entryFlyToSlot) els.entryFlyToSlot.checked = !!config.entryFlyToSlot;
+    if (els.entryFlyToSlotMini) els.entryFlyToSlotMini.checked = !!config.entryFlyToSlot;
+
+    if (els.entryBorderWidth) els.entryBorderWidth.value = (config.entryBorderWidth ?? 2);
+    if (els.entryBorderWidthVal) els.entryBorderWidthVal.textContent = (config.entryBorderWidth ?? 2) + 'px';
+
+    if (els.entryBorderOpacity) els.entryBorderOpacity.value = (config.entryBorderOpacity ?? 18);
+    if (els.entryBorderOpacityVal) els.entryBorderOpacityVal.textContent = (config.entryBorderOpacity ?? 18) + '%';
+
+    if (els.entryBorderRadius) els.entryBorderRadius.value = (config.entryBorderRadius ?? 14);
+    if (els.entryBorderRadiusVal) els.entryBorderRadiusVal.textContent = (config.entryBorderRadius ?? 14) + 'px';
 
     // Export
     if (els.exportCheck) els.exportCheck.checked = config.exportEnabled;
@@ -715,6 +754,8 @@ async function startDropboxMonitor() {
         console.error('Erro ao iniciar monitor Dropbox:', err);
         showToast('Erro ao iniciar monitor do Dropbox.', 'error');
     }
+    updateActiveSummaryCard();
+
 }
 
 function requestWallSnapshotFromAdmin() {
@@ -732,10 +773,203 @@ function requestWallSnapshotFromAdmin() {
     }
 }
 
+function normalizeSearch(str) {
+    return (str || '')
+        .toString()
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim();
+}
+
+// Filtra cards/seções do admin (sem quebrar header/nav)
+function initAdminSearch() {
+    const els = getEls();
+    const input = els.adminSearch;
+    if (!input) return;
+
+    const cards = Array.from(document.querySelectorAll('[data-admin-card="1"]'));
+    const apply = () => {
+        const q = normalizeSearch(input.value);
+        if (!q) {
+            cards.forEach(c => c.classList.remove('hidden'));
+            return;
+        }
+
+        cards.forEach(card => {
+            const hay = normalizeSearch(card.getAttribute('data-search-text') || card.textContent);
+            const hit = hay.includes(q);
+            card.classList.toggle('hidden', !hit);
+        });
+    };
+
+    input.addEventListener('input', apply);
+    apply();
+}
+
+
+function formatBool(v) {
+    return v ? 'ON' : 'OFF';
+}
+
+function updateActiveSummaryCard() {
+    const els = getEls();
+    if (!els.activeSummaryBody) return;
+
+    const cols = config.cols || 1;
+    const rows = config.rows || 1;
+    const cap = cols * rows;
+
+    const layout = config.layoutMode || 'target';
+    const gap = (config.gap ?? 0) + 'px';
+    const opacityPct = Math.round((config.opacity || 1) * 100) + '%';
+
+    const fly = formatBool(!!config.entryFlyToSlot);
+    const hero = formatBool(!!config.heroEnabled);
+    const entry = formatBool(!!config.entryAnimation);
+    const exportOn = formatBool(!!config.exportEnabled);
+    const exportBg = formatBool(!!(config.exportWithBackground ?? true));
+
+    const screenW = config.screenWidth || 1920;
+    const screenH = config.screenHeight || 1080;
+
+    els.activeSummaryBody.innerHTML = `
+        <div class="grid grid-cols-2 gap-2 text-[11px]">
+            <div class="bg-slate-900/40 border border-slate-700 rounded p-2">
+                <div class="text-[9px] text-slate-400 uppercase">Layout</div>
+                <div class="text-slate-100 font-semibold">${layout}</div>
+            </div>
+            <div class="bg-slate-900/40 border border-slate-700 rounded p-2">
+                <div class="text-[9px] text-slate-400 uppercase">Grid</div>
+                <div class="text-slate-100 font-semibold">${cols} x ${rows} (${cap}) • gap ${gap}</div>
+            </div>
+            <div class="bg-slate-900/40 border border-slate-700 rounded p-2">
+                <div class="text-[9px] text-slate-400 uppercase">Tela</div>
+                <div class="text-slate-100 font-semibold">${screenW} x ${screenH}</div>
+            </div>
+            <div class="bg-slate-900/40 border border-slate-700 rounded p-2">
+                <div class="text-[9px] text-slate-400 uppercase">Opacidade</div>
+                <div class="text-slate-100 font-semibold">${opacityPct}</div>
+            </div>
+
+            <div class="bg-slate-900/40 border border-slate-700 rounded p-2">
+                <div class="text-[9px] text-slate-400 uppercase">Fly</div>
+                <div class="text-slate-100 font-semibold">${fly}</div>
+            </div>
+            <div class="bg-slate-900/40 border border-slate-700 rounded p-2">
+                <div class="text-[9px] text-slate-400 uppercase">Hero</div>
+                <div class="text-slate-100 font-semibold">${hero} • entrada ${entry}</div>
+            </div>
+
+            <div class="bg-slate-900/40 border border-slate-700 rounded p-2 col-span-2">
+                <div class="text-[9px] text-slate-400 uppercase">Export</div>
+                <div class="text-slate-100 font-semibold">
+                    ${exportOn} • ${config.exportWidth || 300}x${config.exportHeight || 300} • com bg ${exportBg}
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function initBehaviorSubtabs() {
+    const els = getEls();
+    const btns = Array.from(els.behaviorTabButtons || []);
+    const panels = Array.from(els.behaviorTabPanels || []);
+    if (!btns.length || !panels.length) return;
+
+    const KEY = 'adminBehaviorTab';
+    const setActive = (tab) => {
+        btns.forEach(b => {
+            const isActive = b.getAttribute('data-behavior-tab-btn') === tab;
+            b.classList.toggle('bg-indigo-600', isActive);
+            b.classList.toggle('text-white', isActive);
+            b.classList.toggle('bg-slate-900/70', !isActive);
+            b.classList.toggle('text-slate-200', !isActive);
+        });
+
+        panels.forEach(p => {
+            const isActive = p.getAttribute('data-behavior-tab-panel') === tab;
+            p.classList.toggle('hidden', !isActive);
+        });
+
+        localStorage.setItem(KEY, tab);
+    };
+
+    btns.forEach(b => b.addEventListener('click', () => {
+        setActive(b.getAttribute('data-behavior-tab-btn'));
+    }));
+
+    const initial = localStorage.getItem(KEY) || btns[0].getAttribute('data-behavior-tab-btn');
+    setActive(initial);
+}
+
+function getDummyTestImageDataUrl() {
+    const svg = encodeURIComponent(`
+        <svg xmlns="http://www.w3.org/2000/svg" width="800" height="800">
+          <defs>
+            <linearGradient id="g" x1="0" x2="1" y1="0" y2="1">
+              <stop offset="0" stop-color="#60a5fa"/>
+              <stop offset="1" stop-color="#f472b6"/>
+            </linearGradient>
+          </defs>
+          <rect width="100%" height="100%" fill="url(#g)"/>
+          <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle"
+                font-family="Inter, Arial" font-size="48" fill="white" opacity="0.9">
+            TESTE EFEITO
+          </text>
+        </svg>
+    `);
+    return `data:image/svg+xml;charset=utf-8,${svg}`;
+}
+
+function getBestTestImageUrl() {
+    // tenta usar a última imagem real que já chegou no admin
+    let last = null;
+    try {
+        for (const v of allImagesMap.values()) last = v;
+    } catch { }
+    return (last && last.url) ? last.url : getDummyTestImageDataUrl();
+}
+
+function requestTestEffect(effect) {
+    if (!syncChannel) {
+        showToast('Canal de sincronização não disponível (syncChannel).', 'error');
+        return;
+    }
+
+    const url = getBestTestImageUrl();
+
+    syncChannel.postMessage({
+        type: 'TEST_EFFECT',
+        data: {
+            effect,     // 'entry' | 'fly' | 'hero'
+            url,
+            configSnapshot: {
+                entryFlyToSlot: !!config.entryFlyToSlot,
+                entryAnimSpeed: config.entryAnimSpeed,
+                entryDuration: config.entryDuration,
+                entryScale: config.entryScale,
+                entryBorderWidth: config.entryBorderWidth,
+                entryBorderOpacity: config.entryBorderOpacity,
+                entryBorderRadius: config.entryBorderRadius
+            }
+        }
+    });
+
+    showToast(`Teste enviado: ${effect.toUpperCase()}`);
+}
+
 
 
 function setupListeners() {
+    initBehaviorSubtabs();
+
     const els = getEls();
+
+    if (els.testEntryBtn) els.testEntryBtn.addEventListener('click', () => requestTestEffect('entry'));
+    if (els.testFlyBtn) els.testFlyBtn.addEventListener('click', () => requestTestEffect('fly'));
+    if (els.testHeroBtn) els.testHeroBtn.addEventListener('click', () => requestTestEffect('hero'));
+
 
     // === PRÉVIA DO SOUVENIR ===
     if (els.previewGenerateBtn) {
@@ -813,6 +1047,52 @@ function setupListeners() {
                 change('entryScale', scale);
             }
         });
+
+        // === NOVO: Fly-to-slot (sincroniza clones se existirem)
+        const flyChecks = [els.entryFlyToSlot, els.entryFlyToSlotMini].filter(Boolean);
+        if (flyChecks.length > 0) {
+            flyChecks.forEach(chk => {
+                chk.addEventListener('change', (e) => {
+                    const checked = e.target.checked;
+                    change('entryFlyToSlot', checked, true);
+                    flyChecks.forEach(other => {
+                        if (other && other !== e.target) other.checked = checked;
+                    });
+                });
+            });
+        }
+
+        // === NOVO: sliders da borda do destaque ===
+        if (els.entryBorderWidth) {
+            els.entryBorderWidth.addEventListener('input', e => {
+                const v = parseInt(e.target.value || '0', 10);
+                if (!Number.isNaN(v)) change('entryBorderWidth', v);
+            });
+        }
+
+        if (els.entryBorderOpacity) {
+            els.entryBorderOpacity.addEventListener('input', e => {
+                const v = parseInt(e.target.value || '0', 10);
+                if (!Number.isNaN(v)) change('entryBorderOpacity', v);
+            });
+        }
+
+        if (els.entryBorderRadius) {
+            els.entryBorderRadius.addEventListener('input', e => {
+                const v = parseInt(e.target.value || '0', 10);
+                if (!Number.isNaN(v)) change('entryBorderRadius', v);
+            });
+        }
+        if (els.entryFlyCenterScale) {
+            const apply = () => {
+                const v = parseFloat(els.entryFlyCenterScale.value || '1.8');
+                if (els.entryFlyCenterScaleVal) els.entryFlyCenterScaleVal.textContent = `${v.toFixed(1)}x`;
+                change('entryFlyCenterScale', v);
+            };
+            els.entryFlyCenterScale.addEventListener('input', apply);
+            apply();
+        }
+
     }
 
     const chkBind = (el, key) => el?.addEventListener('change', e => change(key, e.target.checked, true));
@@ -840,21 +1120,6 @@ function setupListeners() {
             });
         });
     }
-
-    // === NOVO: sincroniza entryFlyToSlot (do header e da seção comportamento) ===
-    const flyChecks = [els.entryFlyToSlot, els.entryFlyToSlotMini].filter(Boolean);
-    if (flyChecks.length > 0) {
-        flyChecks.forEach(chk => {
-            chk.addEventListener('change', (e) => {
-                const checked = e.target.checked;
-                change('entryFlyToSlot', checked, true);
-                flyChecks.forEach(other => {
-                    if (other && other !== e.target) other.checked = checked;
-                });
-            });
-        });
-    }
-
 
     if (els.logoUrl) els.logoUrl.addEventListener('change', e => change('logoUrl', e.target.value));
     if (els.logoPosition) els.logoPosition.addEventListener('change', e => change('logoPosition', e.target.value));
@@ -967,14 +1232,14 @@ function setupListeners() {
         els.wizardNext.addEventListener('click', () => goToStep(wizardCurrentStep + 1));
 
     // Sincroniza controles duplicados de "Posição Aleatória" (header + seção comportamento)
-    const randChecks = document.querySelectorAll('input#random-position');
-    if (randChecks.length > 0) {
+    const randChecks = [els.randCheck, els.randCheckMini].filter(Boolean);
+    if (randChecks.length) {
         randChecks.forEach(chk => {
             chk.addEventListener('change', (e) => {
-                const checked = e.target.checked;
+                const checked = !!e.target.checked;
                 change('randomPosition', checked, true);
                 randChecks.forEach(other => {
-                    if (other !== e.target) other.checked = checked;
+                    if (other && other !== e.target) other.checked = checked;
                 });
             });
         });
@@ -1306,6 +1571,7 @@ async function bootAdmin() {
 
     updateUI();
     setupListeners();
+    initAdminSearch();
     setInterval(fetchGallery, 1000);
     fetchGallery();
 }
