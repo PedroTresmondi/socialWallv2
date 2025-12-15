@@ -39,6 +39,7 @@ export const defaultConfig = {
     showGridNumber: false,
 
     entryAnimation: true,
+    entryFlyToSlot: false,
     entryDuration: 3000,
     entryAnimSpeed: 500,
     entryScale: 1.5,

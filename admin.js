@@ -19,6 +19,7 @@ let config = loadConfig();
 config.overlayStrength = typeof config.overlayStrength === 'number' ? config.overlayStrength : 100;
 config.showGridNumber = config.showGridNumber ?? false;
 config.entryAnimation = config.entryAnimation ?? true;
+config.entryFlyToSlot = config.entryFlyToSlot ?? false;
 // Novos defaults de animação
 config.entryDuration = config.entryDuration || 3000;
 config.entryAnimSpeed = config.entryAnimSpeed || 500;
@@ -93,6 +94,11 @@ const getEls = () => ({
     // Animação de Chegada
     entryAnimation: document.getElementById('entry-animation'),
     entryAnimationMini: document.getElementById('entry-animation-mini'),
+
+    // Novo: foto no centro -> voa/caminha até o slot
+    entryFlyToSlot: document.getElementById('entry-fly-to-slot'),
+    entryFlyToSlotMini: document.getElementById('entry-fly-to-slot-mini'),
+
     // 🟢 NOVOS ELEMENTOS CAPTURADOS
     entryDuration: document.getElementById('entry-duration'),
     entrySpeed: document.getElementById('entry-speed'),
@@ -609,6 +615,8 @@ function updateUI() {
     // 🟢 UI UPDATE: Entry Animation
     if (els.entryAnimation) els.entryAnimation.checked = config.entryAnimation;
     if (els.entryAnimationMini) els.entryAnimationMini.checked = config.entryAnimation;
+    if (els.entryFlyToSlot) els.entryFlyToSlot.checked = !!config.entryFlyToSlot;
+    if (els.entryFlyToSlotMini) els.entryFlyToSlotMini.checked = !!config.entryFlyToSlot;
 
     if (els.entryDuration) els.entryDuration.value = (config.entryDuration || 3000) / 1000;
     if (els.entryDurationVal) els.entryDurationVal.textContent = ((config.entryDuration || 3000) / 1000) + 's';
@@ -832,6 +840,21 @@ function setupListeners() {
             });
         });
     }
+
+    // === NOVO: sincroniza entryFlyToSlot (do header e da seção comportamento) ===
+    const flyChecks = [els.entryFlyToSlot, els.entryFlyToSlotMini].filter(Boolean);
+    if (flyChecks.length > 0) {
+        flyChecks.forEach(chk => {
+            chk.addEventListener('change', (e) => {
+                const checked = e.target.checked;
+                change('entryFlyToSlot', checked, true);
+                flyChecks.forEach(other => {
+                    if (other && other !== e.target) other.checked = checked;
+                });
+            });
+        });
+    }
+
 
     if (els.logoUrl) els.logoUrl.addEventListener('change', e => change('logoUrl', e.target.value));
     if (els.logoPosition) els.logoPosition.addEventListener('change', e => change('logoPosition', e.target.value));

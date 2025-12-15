@@ -174,9 +174,9 @@ if (syncChannel) {
         if (event.data && event.data.type === 'HIDDEN_UPDATE') {
             setTimeout(processQueueStep, 50);
         }
-        if (msg.type === 'CAPTURE_WALL') {
-            captureFullWallSnapshot(true);
-        }
+        /*  if (msg.type === 'CAPTURE_WALL') {
+             captureFullWallSnapshot(true);
+         } */
     };
 }
 
@@ -588,6 +588,112 @@ function updateSlotBackgroundSlice(div, slotIndex, hasImage) {
     div.style.setProperty('--slot-overlay-opacity', String(finalAlpha));
 }
 
+
+// --- ANIMAÇÃO: foto aparece no centro e "caminha" até o slot ---
+function playEntryFlyToSlot(src, targetDiv) {
+    return new Promise((resolve) => {
+        try {
+            const rect = targetDiv.getBoundingClientRect();
+            if (!rect || rect.width <= 1 || rect.height <= 1) return resolve();
+
+            const vw = window.innerWidth || 1;
+            const vh = window.innerHeight || 1;
+
+            // Config
+            const holdMs = Math.max(0, parseInt(config.entryDuration || 0, 10) || 0);
+            const moveMs = Math.max(0, parseInt(config.entryAnimSpeed || 0, 10) || 0);
+            const scale = (typeof config.entryScale === 'number' ? config.entryScale : parseFloat(config.entryScale || '1.5')) || 1.5;
+
+            // Overlay
+            const overlay = document.createElement('div');
+            overlay.style.position = 'fixed';
+            overlay.style.left = '0';
+            overlay.style.top = '0';
+            overlay.style.width = '100vw';
+            overlay.style.height = '100vh';
+            overlay.style.pointerEvents = 'none';
+            overlay.style.zIndex = '999999';
+            overlay.style.overflow = 'visible';
+
+            const ghost = document.createElement('img');
+            ghost.src = src;
+            ghost.alt = '';
+            ghost.style.position = 'absolute';
+            ghost.style.objectFit = 'cover';
+            ghost.style.opacity = '0';
+            ghost.style.borderRadius = '14px';
+            ghost.style.border = '1px solid rgba(255,255,255,0.22)';
+
+            ghost.style.boxShadow = `
+  0 20px 70px rgba(0,0,0,0.55),
+  0 0 0 1px rgba(255,255,255,0.10)
+`;
+            ghost.style.willChange = 'left, top, width, height, opacity, transform';
+
+            overlay.appendChild(ghost);
+            document.body.appendChild(overlay);
+
+            // Tamanho inicial (grande no centro) baseado no slot + escala (com clamp na viewport)
+            const targetW = Math.max(1, rect.width);
+            const targetH = Math.max(1, rect.height);
+            const aspect = targetW / targetH;
+
+            let startW = targetW * Math.max(1, scale) * 2; // "bem grande"
+            let startH = startW / aspect;
+
+            const maxW = vw * 0.85;
+            const maxH = vh * 0.85;
+            const k = Math.min(maxW / startW, maxH / startH, 1);
+            startW *= k;
+            startH *= k;
+
+            const startLeft = Math.round((vw - startW) / 2);
+            const startTop = Math.round((vh - startH) / 2);
+
+            ghost.style.left = startLeft + 'px';
+            ghost.style.top = startTop + 'px';
+            ghost.style.width = Math.round(startW) + 'px';
+            ghost.style.height = Math.round(startH) + 'px';
+
+            // Fade-in rápido
+            requestAnimationFrame(() => {
+                ghost.style.transition = 'opacity 220ms ease-out';
+                ghost.style.opacity = '1';
+            });
+
+            const fly = () => {
+                const left = Math.round(rect.left);
+                const top = Math.round(rect.top);
+                const w = Math.round(rect.width);
+                const h = Math.round(rect.height);
+
+                ghost.style.transition =
+                    `left ${moveMs}ms cubic-bezier(0.2, 0.8, 0.2, 1), ` +
+                    `top ${moveMs}ms cubic-bezier(0.2, 0.8, 0.2, 1), ` +
+                    `width ${moveMs}ms cubic-bezier(0.2, 0.8, 0.2, 1), ` +
+                    `height ${moveMs}ms cubic-bezier(0.2, 0.8, 0.2, 1)`;
+
+                ghost.style.left = left + 'px';
+                ghost.style.top = top + 'px';
+                ghost.style.width = w + 'px';
+                ghost.style.height = h + 'px';
+
+                // Finaliza
+                setTimeout(() => {
+                    try { overlay.remove(); } catch { }
+                    resolve();
+                }, moveMs + 30);
+            };
+
+            if (holdMs > 0) setTimeout(fly, holdMs);
+            else fly();
+        } catch (e) {
+            resolve();
+        }
+    });
+}
+
+
 // --- RENDER CURRENT STATE ---
 
 
@@ -628,11 +734,46 @@ function renderCurrentState(gridState, imageMap) {
 
         requestAnimationFrame(() => {
             requestAnimationFrame(() => {
-                img.style.opacity = config.opacity;
+                const useFly = !!config.entryFlyToSlot;
+                if (!useFly) {
+                    img.style.opacity = config.opacity;
+                } else {
+                    // fica invisível no slot até o "fly" terminar
+                    img.style.opacity = '0';
+                }
                 img.style.transform = 'scale(1) translateY(0) rotate(0)';
 
+                // Se fly estiver ligado, executa a animação do centro até o slot e só então revela a imagem
+                if (useFly) {
+                    playEntryFlyToSlot(data.url, div).then(() => {
+                        img.style.opacity = config.opacity;
+                        // opcional: ainda dá o highlight no slot ao chegar
+                        if (config.entryAnimation) {
+                            const scale = config.entryScale || 1.5;
+                            const speed = config.entryAnimSpeed || 500; // ms
+                            const duration = config.entryDuration || 3000; // ms
+                            div.style.setProperty('--hero-scale', scale);
+                            div.style.setProperty('--hero-transition', `${speed}ms`);
+                            div.classList.add('hero-active');
+                            div.style.outline = '10px solid rgba(255,255,255,0.18)';
+                            div.style.outlineOffset = '-2px';
+                            div.style.borderRadius = '36px';
+                            setTimeout(() => {
+                                div.classList.remove('hero-active');
+                                div.style.outline = '';
+                                div.style.outlineOffset = '';
+                                div.style.borderRadius = '';
+                                setTimeout(() => {
+                                    div.style.removeProperty('--hero-scale');
+                                    div.style.removeProperty('--hero-transition');
+                                }, speed + 100);
+                            }, duration);
+                        }
+                    });
+                }
+
                 // 🟢 LÓGICA ATUALIZADA DA ANIMAÇÃO DE CHEGADA 🟢
-                if (config.entryAnimation) {
+                if (config.entryAnimation && !useFly) {
                     // 1. Define as variáveis CSS dinamicamente para este slot
                     const scale = config.entryScale || 1.5;
                     const speed = config.entryAnimSpeed || 500; // ms
@@ -656,9 +797,6 @@ function renderCurrentState(gridState, imageMap) {
 
                     }, duration);
                 }
-                // 🟢 FIM NOVA LÓGICA 🟢
-
-                // dispara export...
                 const slotDiv = slots[i];
                 setTimeout(() => {
                     triggerSouvenirExport(idInSlot, slotDiv, config, i);
