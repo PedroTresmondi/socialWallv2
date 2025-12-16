@@ -19,6 +19,7 @@ let config = loadConfig();
 config.overlayStrength = typeof config.overlayStrength === 'number' ? config.overlayStrength : 100;
 config.showGridNumber = config.showGridNumber ?? false;
 config.entryAnimation = config.entryAnimation ?? true;
+
 // Novos defaults de animação
 config.entryDuration = config.entryDuration || 3000;
 config.entryAnimSpeed = config.entryAnimSpeed || 500;
@@ -29,11 +30,19 @@ config.entryBorderWidth = config.entryBorderWidth ?? 2;
 config.entryBorderOpacity = config.entryBorderOpacity ?? 18;
 config.entryBorderRadius = config.entryBorderRadius ?? 14;
 
+config.entryFlyCenterScale = config.entryFlyCenterScale ?? 1.8;
+
 config.eventName = config.eventName || '';
 config.screenWidth = config.screenWidth || 1920;
 config.screenHeight = config.screenHeight || 1080;
 config.exportBaseFolder = config.exportBaseFolder || '';
 config.adminMode = config.adminMode || 'setup';
+
+// ✅ default do toggle “exportar com background”
+config.exportWithBackground = config.exportWithBackground ?? true;
+
+// ✅ default do modo de fonte
+config.sourceMode = config.sourceMode || 'local';
 
 // --- ESTADO LOCAL ---
 let currentFilter = 'queue';
@@ -66,7 +75,6 @@ const getEls = () => ({
     entryFlyCenterScale: document.getElementById('entry-fly-center-scale'),
     entryFlyCenterScaleVal: document.getElementById('entry-fly-center-scale-val'),
 
-
     // Search + Resumo ativo
     adminSearch: document.getElementById('admin-search'),
     activeSummaryCard: document.getElementById('active-summary-card'),
@@ -83,7 +91,6 @@ const getEls = () => ({
     testEntryBtn: document.getElementById('test-entry-btn'),
     testFlyBtn: document.getElementById('test-fly-btn'),
     testHeroBtn: document.getElementById('test-hero-btn'),
-
 
     // Bg / Filtros
     bgFileInput: document.getElementById('bg-file-input'),
@@ -118,7 +125,6 @@ const getEls = () => ({
     // Animação de Chegada
     entryAnimation: document.getElementById('entry-animation'),
     entryAnimationMini: document.getElementById('entry-animation-mini'),
-    // 🟢 NOVOS ELEMENTOS CAPTURADOS
     entryDuration: document.getElementById('entry-duration'),
     entrySpeed: document.getElementById('entry-speed'),
     entryScale: document.getElementById('entry-scale'),
@@ -127,7 +133,6 @@ const getEls = () => ({
     entryBorderWidth: document.getElementById('entry-border-width'),
     entryBorderOpacity: document.getElementById('entry-border-opacity'),
     entryBorderRadius: document.getElementById('entry-border-radius'),
-
 
     // Labels
     entryDurationVal: document.getElementById('entry-duration-val'),
@@ -240,6 +245,28 @@ const getEls = () => ({
     configUploadInput: document.getElementById('config-upload-input')
 });
 
+// --- ACCORDIONS (MELHORIA DE USABILIDADE) ---
+function initAccordions() {
+    document.querySelectorAll('.glass-panel h3').forEach(header => {
+        if (!header.dataset.accordion) {
+            header.dataset.accordion = "true";
+            header.style.cursor = 'pointer';
+            header.title = "Clique para minimizar/expandir";
+            header.innerHTML = `<span class="mr-2">▼</span> ${header.innerHTML}`;
+
+            header.addEventListener('click', () => {
+                const parent = header.parentElement;
+                const children = Array.from(parent.children).filter(c => c !== header);
+                const isClosed = parent.getAttribute('data-closed') === 'true';
+
+                children.forEach(el => el.style.display = isClosed ? '' : 'none');
+                parent.setAttribute('data-closed', !isClosed);
+                header.querySelector('span').innerText = isClosed ? '▼' : '▶';
+            });
+        }
+    });
+}
+
 function updateServerStatus(isOnline) {
     const els = getEls();
     const badge = els.serverStatusBadge;
@@ -248,14 +275,12 @@ function updateServerStatus(isOnline) {
     const dot = badge.querySelector('.status-dot');
     const label = badge.querySelector('.status-label');
 
-    // Limpa classes básicas
     badge.classList.remove(
         'bg-red-900/60', 'text-red-200', 'border-red-500/60',
         'bg-emerald-900/60', 'text-emerald-200', 'border-emerald-500/60'
     );
 
     if (isOnline) {
-        // ONLINE (verde)
         badge.classList.add('bg-emerald-900/60', 'text-emerald-200', 'border-emerald-500/60');
         if (dot) {
             dot.classList.remove('bg-red-400');
@@ -263,7 +288,6 @@ function updateServerStatus(isOnline) {
         }
         if (label) label.textContent = 'Servidor ON';
     } else {
-        // OFFLINE (vermelho)
         badge.classList.add('bg-red-900/60', 'text-red-200', 'border-red-500/60');
         if (dot) {
             dot.classList.remove('bg-emerald-400');
@@ -294,8 +318,6 @@ function initAdminBroadcastHandlers() {
         }
     });
 }
-
-
 
 function showToast(msg, type = 'success') {
     const c = document.getElementById('toast-container'); if (!c) return;
@@ -351,24 +373,38 @@ async function generatePreview() {
         const slotH = Math.floor(screenH / rows);
         const slotCoords = { x: 0, y: 0, w: slotW, h: slotH };
 
+        const withBg = (config.exportWithBackground ?? true);
+
         const exportData = {
             photoId: latestImage.id,
-            backgroundUrl: config.backgroundUrl,
+
+            // ✅ passa o toggle pro servidor (se ele quiser usar)
+            exportWithBackground: withBg,
+
+            // Se desligar o BG, mandamos backgroundUrl null pra forçar “somente a foto”
+            backgroundUrl: withBg ? config.backgroundUrl : null,
+
             tile: { row: 0, col: 0, cols, rows },
             slotCoords: slotCoords,
             exportSize: {
                 w: config.exportWidth || 300,
                 h: config.exportHeight || 300
             },
+
+            // Opacidade vem em 0..1 (igual admin)
             opacity: config.opacity || 1,
+
             gridNumber: config.showGridNumber ? 1 : null,
-            bgFilters: {
+
+            // Se desligar BG, pode ignorar filtros/overlay
+            bgFilters: withBg ? {
                 brightness: config.bgBrightness ?? 100,
                 contrast: config.bgContrast ?? 100,
                 saturate: config.bgSaturate ?? 100,
                 blur: config.bgBlur ?? 0
-            },
-            overlayStrength: config.overlayStrength ?? 100
+            } : null,
+
+            overlayStrength: withBg ? (config.overlayStrength ?? 100) : 0
         };
 
         const resExp = await fetch('http://localhost:3000/api/export-collage', {
@@ -402,7 +438,6 @@ async function generatePreview() {
 
 // --- CALCULO GRID ---
 function calculateEstimatedGrid() {
-    // Se o layout estiver travado, não mexe em cols/rows automaticamente
     if (config.layoutLocked) return;
 
     if (config.layoutMode === 'target') {
@@ -413,7 +448,6 @@ function calculateEstimatedGrid() {
         saveConfig(config);
     }
 }
-
 
 // Sincronia
 setInterval(() => {
@@ -450,38 +484,15 @@ const change = (key, val, showMsg = false) => {
 function renderGridPreview() {
     const els = getEls();
     const container = els.gridPreviewInner;
-    const wrapper = els.gridPreviewWrapper;
-    if (!container || !wrapper) return;
+    if (!container) return;
 
     const cols = config.cols || 1;
     const rows = config.rows || 1;
     const totalSlots = cols * rows;
 
-    // Resolução "real" do telão (vem do wizard/config)
     const screenW = config.screenWidth || 1920;
     const screenH = config.screenHeight || 1080;
 
-    // Wrapper fixo (30vw x 30vh já está no HTML, aqui só garantimos o comportamento)
-    wrapper.style.position = 'relative';
-    wrapper.style.overflow = 'hidden';
-
-    // Área interna: tamanho real do wall
-    container.style.position = 'absolute';
-    container.style.top = '0';
-    container.style.left = '0';
-    container.style.width = screenW + 'px';
-    container.style.height = screenH + 'px';
-
-    // Calcula o scale para caber dentro de 30vw x 30vh
-    const rect = wrapper.getBoundingClientRect();
-    const scaleX = rect.width / screenW;
-    const scaleY = rect.height / screenH;
-    const scale = Math.min(scaleX, scaleY);
-
-    container.style.transformOrigin = 'top left';
-    container.style.transform = `scale(${scale})`;
-
-    // --- Estilos de grid e background continuam como antes ---
     let gridState = [];
     try {
         gridState = JSON.parse(localStorage.getItem(GRID_STATE_KEY) || '[]');
@@ -566,12 +577,12 @@ function renderGridPreview() {
     }
 }
 
-
 function updateStats(overrideTotal = null) {
     const els = getEls();
     const gs = JSON.parse(localStorage.getItem(GRID_STATE_KEY) || '[]');
     let total = overrideTotal;
     if (total === null && els.statBackend) total = parseInt(els.statBackend.innerText) || 0;
+
     const onScreen = gs.filter(id => id !== null).length;
     const hidden = getHiddenImages().length;
     const queue = Math.max(0, total - onScreen - hidden);
@@ -593,7 +604,7 @@ function updateUI() {
     const els = getEls();
     document.body.dataset.mode = config.adminMode || 'setup';
 
-    // Inputs
+    // Inputs (Sincronização Bidirecional)
     if (els.targetCount) els.targetCount.value = config.targetCount || 20;
     if (els.layoutMode) els.layoutMode.value = config.layoutMode || 'target';
     if (els.gridCols) els.gridCols.value = config.cols;
@@ -605,7 +616,6 @@ function updateUI() {
 
     if (els.layoutMode) els.layoutMode.value = config.layoutMode || 'target';
     if (els.layoutLockCheck) els.layoutLockCheck.checked = !!config.layoutLocked;
-
 
     // Bg
     if (els.bgBrightness) els.bgBrightness.value = config.bgBrightness;
@@ -619,7 +629,7 @@ function updateUI() {
     if (els.overlayStrength) els.overlayStrength.value = config.overlayStrength;
     if (els.overlayStrengthVal) els.overlayStrengthVal.textContent = config.overlayStrength + '%';
 
-    // Comportamento / Animação
+    // Comportamento
     if (els.heroInterval) els.heroInterval.value = config.heroInterval;
     if (els.heroIntervalVal) els.heroIntervalVal.textContent = config.heroInterval + 's';
     if (els.idleTimeout) els.idleTimeout.value = config.idleTimeout;
@@ -640,33 +650,27 @@ function updateUI() {
     if (els.tickerEnabled) els.tickerEnabled.checked = config.tickerEnabled;
     if (els.showGridNumCheck) els.showGridNumCheck.checked = config.showGridNumber;
 
-    // 🟢 UI UPDATE: Entry Animation
+    // Entry Animation UI
     if (els.entryAnimation) els.entryAnimation.checked = config.entryAnimation;
     if (els.entryAnimationMini) els.entryAnimationMini.checked = config.entryAnimation;
-
     if (els.entryDuration) els.entryDuration.value = (config.entryDuration || 3000) / 1000;
     if (els.entryDurationVal) els.entryDurationVal.textContent = ((config.entryDuration || 3000) / 1000) + 's';
-
     if (els.entrySpeed) els.entrySpeed.value = (config.entryAnimSpeed || 500) / 1000;
     if (els.entrySpeedVal) els.entrySpeedVal.textContent = ((config.entryAnimSpeed || 500) / 1000) + 's';
-
     if (els.entryScale) els.entryScale.value = config.entryScale || 1.5;
     if (els.entryScaleVal) els.entryScaleVal.textContent = (config.entryScale || 1.5) + 'x';
 
-    // 🟢 UI UPDATE: Fly-to-slot + Borda do destaque
+    // Fly & Border UI
     if (els.entryFlyToSlot) els.entryFlyToSlot.checked = !!config.entryFlyToSlot;
     if (els.entryFlyToSlotMini) els.entryFlyToSlotMini.checked = !!config.entryFlyToSlot;
-
     if (els.entryBorderWidth) els.entryBorderWidth.value = (config.entryBorderWidth ?? 2);
     if (els.entryBorderWidthVal) els.entryBorderWidthVal.textContent = (config.entryBorderWidth ?? 2) + 'px';
-
     if (els.entryBorderOpacity) els.entryBorderOpacity.value = (config.entryBorderOpacity ?? 18);
     if (els.entryBorderOpacityVal) els.entryBorderOpacityVal.textContent = (config.entryBorderOpacity ?? 18) + '%';
-
     if (els.entryBorderRadius) els.entryBorderRadius.value = (config.entryBorderRadius ?? 14);
     if (els.entryBorderRadiusVal) els.entryBorderRadiusVal.textContent = (config.entryBorderRadius ?? 14) + 'px';
 
-    // Export
+    // Export UI
     if (els.exportCheck) els.exportCheck.checked = config.exportEnabled;
     if (els.exportW) els.exportW.value = config.exportWidth;
     if (els.exportH) els.exportH.value = config.exportHeight;
@@ -687,7 +691,7 @@ function updateUI() {
         else els.groupManual?.classList.remove('hidden');
     }
 
-    // Buttons
+    // Botões de Modo
     if (config.sourceMode === 'dropbox') {
         if (els.modeDropboxBtn) els.modeDropboxBtn.className = "flex-1 py-2 text-xs font-bold rounded transition bg-blue-600 text-white";
         if (els.modeLocalBtn) els.modeLocalBtn.className = "flex-1 py-2 text-xs font-bold rounded transition text-slate-400 hover:text-white";
@@ -719,6 +723,7 @@ function updateUI() {
     });
 
     renderGridPreview();
+    updateActiveSummaryCard();
 }
 
 async function startDropboxMonitor() {
@@ -755,7 +760,6 @@ async function startDropboxMonitor() {
         showToast('Erro ao iniciar monitor do Dropbox.', 'error');
     }
     updateActiveSummaryCard();
-
 }
 
 function requestWallSnapshotFromAdmin() {
@@ -782,7 +786,6 @@ function normalizeSearch(str) {
         .trim();
 }
 
-// Filtra cards/seções do admin (sem quebrar header/nav)
 function initAdminSearch() {
     const els = getEls();
     const input = els.adminSearch;
@@ -806,7 +809,6 @@ function initAdminSearch() {
     input.addEventListener('input', apply);
     apply();
 }
-
 
 function formatBool(v) {
     return v ? 'ON' : 'OFF';
@@ -923,7 +925,6 @@ function getDummyTestImageDataUrl() {
 }
 
 function getBestTestImageUrl() {
-    // tenta usar a última imagem real que já chegou no admin
     let last = null;
     try {
         for (const v of allImagesMap.values()) last = v;
@@ -942,7 +943,7 @@ function requestTestEffect(effect) {
     syncChannel.postMessage({
         type: 'TEST_EFFECT',
         data: {
-            effect,     // 'entry' | 'fly' | 'hero'
+            effect,
             url,
             configSnapshot: {
                 entryFlyToSlot: !!config.entryFlyToSlot,
@@ -951,15 +952,14 @@ function requestTestEffect(effect) {
                 entryScale: config.entryScale,
                 entryBorderWidth: config.entryBorderWidth,
                 entryBorderOpacity: config.entryBorderOpacity,
-                entryBorderRadius: config.entryBorderRadius
+                entryBorderRadius: config.entryBorderRadius,
+                entryFlyCenterScale: config.entryFlyCenterScale
             }
         }
     });
 
     showToast(`Teste enviado: ${effect.toUpperCase()}`);
 }
-
-
 
 function setupListeners() {
     initBehaviorSubtabs();
@@ -970,8 +970,6 @@ function setupListeners() {
     if (els.testFlyBtn) els.testFlyBtn.addEventListener('click', () => requestTestEffect('fly'));
     if (els.testHeroBtn) els.testHeroBtn.addEventListener('click', () => requestTestEffect('hero'));
 
-
-    // === PRÉVIA DO SOUVENIR ===
     if (els.previewGenerateBtn) {
         els.previewGenerateBtn.addEventListener('click', generatePreview);
     }
@@ -980,13 +978,13 @@ function setupListeners() {
         els.captureWallAdminBtn.addEventListener('click', requestWallSnapshotFromAdmin);
     }
 
-    // layout
     if (els.layoutMode) els.layoutMode.addEventListener('change', e => change('layoutMode', e.target.value, true));
     const numBind = (el, key) => el?.addEventListener('input', e => {
         const v = parseInt(e.target.value || '0', 10);
         if (Number.isNaN(v)) return;
         change(key, v);
     });
+
     numBind(els.targetCount, 'targetCount');
     numBind(els.gridCols, 'cols');
     numBind(els.gridRows, 'rows');
@@ -999,104 +997,96 @@ function setupListeners() {
     numBind(els.bgBlur, 'bgBlur');
     numBind(els.heroInterval, 'heroInterval');
     numBind(els.idleTimeout, 'idleTimeout');
-    // NOVO: força do overlay do background no souvenir
     numBind(els.overlayStrength, 'overlayStrength');
 
-    // export
     numBind(els.exportW, 'exportWidth');
     numBind(els.exportH, 'exportHeight');
 
     if (els.opacityIn)
         els.opacityIn.addEventListener('input', e => change('opacity', parseFloat(e.target.value) / 100));
+
     if (els.animType)
         els.animType.addEventListener('change', e => change('animType', e.target.value));
+
     if (els.animDur)
         els.animDur.addEventListener('input', e => {
             const v = parseInt(e.target.value || '0', 10);
             if (!Number.isNaN(v)) change('animDuration', v);
         });
+
     if (els.processInterval)
         els.processInterval.addEventListener('input', e => {
             const v = parseFloat(e.target.value || '0');
             if (!Number.isNaN(v)) change('processInterval', v * 1000);
         });
 
-    // === NOVO: sliders da animação de chegada (Hero) ===
+    // --- Entry controls (separados pra não dependerem de entryScale existir) ---
     if (els.entryDuration) {
         els.entryDuration.addEventListener('input', e => {
             const seconds = parseFloat(e.target.value || '0');
-            if (!Number.isNaN(seconds)) {
-                change('entryDuration', seconds * 1000); // s -> ms
-            }
+            if (!Number.isNaN(seconds)) change('entryDuration', seconds * 1000);
         });
     }
 
     if (els.entrySpeed) {
         els.entrySpeed.addEventListener('input', e => {
             const seconds = parseFloat(e.target.value || '0');
-            if (!Number.isNaN(seconds)) {
-                change('entryAnimSpeed', seconds * 1000); // s -> ms
-            }
+            if (!Number.isNaN(seconds)) change('entryAnimSpeed', seconds * 1000);
         });
     }
 
     if (els.entryScale) {
         els.entryScale.addEventListener('input', e => {
             const scale = parseFloat(e.target.value || '0');
-            if (!Number.isNaN(scale)) {
-                change('entryScale', scale);
-            }
+            if (!Number.isNaN(scale)) change('entryScale', scale);
         });
+    }
 
-        // === NOVO: Fly-to-slot (sincroniza clones se existirem)
-        const flyChecks = [els.entryFlyToSlot, els.entryFlyToSlotMini].filter(Boolean);
-        if (flyChecks.length > 0) {
-            flyChecks.forEach(chk => {
-                chk.addEventListener('change', (e) => {
-                    const checked = e.target.checked;
-                    change('entryFlyToSlot', checked, true);
-                    flyChecks.forEach(other => {
-                        if (other && other !== e.target) other.checked = checked;
-                    });
+    const flyChecks = [els.entryFlyToSlot, els.entryFlyToSlotMini].filter(Boolean);
+    if (flyChecks.length > 0) {
+        flyChecks.forEach(chk => {
+            chk.addEventListener('change', (e) => {
+                const checked = e.target.checked;
+                change('entryFlyToSlot', checked, true);
+                flyChecks.forEach(other => {
+                    if (other && other !== e.target) other.checked = checked;
                 });
             });
-        }
+        });
+    }
 
-        // === NOVO: sliders da borda do destaque ===
-        if (els.entryBorderWidth) {
-            els.entryBorderWidth.addEventListener('input', e => {
-                const v = parseInt(e.target.value || '0', 10);
-                if (!Number.isNaN(v)) change('entryBorderWidth', v);
-            });
-        }
+    if (els.entryBorderWidth) {
+        els.entryBorderWidth.addEventListener('input', e => {
+            const v = parseInt(e.target.value || '0', 10);
+            if (!Number.isNaN(v)) change('entryBorderWidth', v);
+        });
+    }
 
-        if (els.entryBorderOpacity) {
-            els.entryBorderOpacity.addEventListener('input', e => {
-                const v = parseInt(e.target.value || '0', 10);
-                if (!Number.isNaN(v)) change('entryBorderOpacity', v);
-            });
-        }
+    if (els.entryBorderOpacity) {
+        els.entryBorderOpacity.addEventListener('input', e => {
+            const v = parseInt(e.target.value || '0', 10);
+            if (!Number.isNaN(v)) change('entryBorderOpacity', v);
+        });
+    }
 
-        if (els.entryBorderRadius) {
-            els.entryBorderRadius.addEventListener('input', e => {
-                const v = parseInt(e.target.value || '0', 10);
-                if (!Number.isNaN(v)) change('entryBorderRadius', v);
-            });
-        }
-        if (els.entryFlyCenterScale) {
-            const apply = () => {
-                const v = parseFloat(els.entryFlyCenterScale.value || '1.8');
-                if (els.entryFlyCenterScaleVal) els.entryFlyCenterScaleVal.textContent = `${v.toFixed(1)}x`;
-                change('entryFlyCenterScale', v);
-            };
-            els.entryFlyCenterScale.addEventListener('input', apply);
-            apply();
-        }
+    if (els.entryBorderRadius) {
+        els.entryBorderRadius.addEventListener('input', e => {
+            const v = parseInt(e.target.value || '0', 10);
+            if (!Number.isNaN(v)) change('entryBorderRadius', v);
+        });
+    }
 
+    if (els.entryFlyCenterScale) {
+        const apply = () => {
+            const v = parseFloat(els.entryFlyCenterScale.value || '1.8');
+            if (els.entryFlyCenterScaleVal) els.entryFlyCenterScaleVal.textContent = `${v.toFixed(1)}x`;
+            change('entryFlyCenterScale', v);
+        };
+        els.entryFlyCenterScale.addEventListener('input', apply);
+        apply();
     }
 
     const chkBind = (el, key) => el?.addEventListener('change', e => change(key, e.target.checked, true));
-    // randCheck será tratado separadamente para sincronizar clones
     chkBind(els.persistCheck, 'persistGrid');
     chkBind(els.removalCheck, 'removalMode');
     chkBind(els.heroCheck, 'heroEnabled');
@@ -1107,7 +1097,6 @@ function setupListeners() {
     chkBind(els.exportWithBgCheck, 'exportWithBackground');
     chkBind(els.layoutLockCheck, 'layoutLocked');
 
-    // === NOVO: sincroniza entryAnimation do header e da seção comportamento ===
     const entryChecks = [els.entryAnimation, els.entryAnimationMini].filter(Boolean);
     if (entryChecks.length > 0) {
         entryChecks.forEach(chk => {
@@ -1142,37 +1131,49 @@ function setupListeners() {
 
     if (els.modeDropboxBtn)
         els.modeDropboxBtn.addEventListener('click', () => {
-            config.sourceMode = 'dropbox'; saveConfig(config); updateUI(); startDropboxMonitor(); fetchGallery(); showToast("Modo Dropbox");
+            config.sourceMode = 'dropbox';
+            saveConfig(config);
+            updateUI();
+            startDropboxMonitor();
+            fetchGallery();
+            showToast("Modo Dropbox");
         });
+
     if (els.modeLocalBtn)
         els.modeLocalBtn.addEventListener('click', () => {
-            config.sourceMode = 'local'; saveConfig(config); updateUI(); fetchGallery(); showToast("Modo Local");
+            config.sourceMode = 'local';
+            saveConfig(config);
+            updateUI();
+            fetchGallery();
+            showToast("Modo Local");
         });
+
     if (els.dropboxSyncBtn)
         els.dropboxSyncBtn.addEventListener('click', () => {
             config.dropboxToken = els.dropboxToken.value;
-            config.dropboxFolder = els.dropboxFolder.value;
+            config.dropboxFolder = els.dropboxFolder.value || '/';
             saveConfig(config);
             startDropboxMonitor();
             showToast("Sincronizando...");
         });
+
     if (els.toggleBtn)
         els.toggleBtn.addEventListener('click', () => {
             change('processing', !config.processing);
             showToast(config.processing ? "Iniciado" : "Pausado");
         });
+
     if (els.refreshBtn)
         els.refreshBtn.addEventListener('click', () => { fetchGallery(); showToast("Lista Atualizada"); });
+
     if (els.clearHiddenBtn)
         els.clearHiddenBtn.addEventListener('click', () => { clearHiddenImages(); fetchGallery(); showToast("Bloqueios Limpos"); });
 
-    // abas
     const setTab = (tab) => { currentFilter = tab; updateUI(); fetchGallery(); };
     if (els.tabQueue) els.tabQueue.addEventListener('click', () => setTab('queue'));
     if (els.tabWall) els.tabWall.addEventListener('click', () => setTab('wall'));
     if (els.tabRemoved) els.tabRemoved.addEventListener('click', () => setTab('removed'));
 
-    // --- Wizard: Setup rápido ---
     if (els.wizardEventNameInput)
         els.wizardEventNameInput.addEventListener('input', e => change('eventName', e.target.value));
 
@@ -1216,10 +1217,9 @@ function setupListeners() {
     if (els.wizardExportBaseFolder)
         els.wizardExportBaseFolder.addEventListener('input', e => change('exportBaseFolder', e.target.value));
 
-    // Navegação do wizard (topo)
     const goToStep = (step) => {
         wizardCurrentStep = Math.min(4, Math.max(1, step));
-        updateWizardStepUI();
+        // updateWizardStepUI(); // Se não existir, comente ou implemente
     };
     if (els.wizardStep1Btn) els.wizardStep1Btn.addEventListener('click', () => goToStep(1));
     if (els.wizardStep2Btn) els.wizardStep2Btn.addEventListener('click', () => goToStep(2));
@@ -1231,7 +1231,6 @@ function setupListeners() {
     if (els.wizardNext)
         els.wizardNext.addEventListener('click', () => goToStep(wizardCurrentStep + 1));
 
-    // Sincroniza controles duplicados de "Posição Aleatória" (header + seção comportamento)
     const randChecks = [els.randCheck, els.randCheckMini].filter(Boolean);
     if (randChecks.length) {
         randChecks.forEach(chk => {
@@ -1245,7 +1244,6 @@ function setupListeners() {
         });
     }
 
-    // Navegação de seções (mini-menu)
     if (els.sectionNavBtns && els.sectionNavBtns.forEach) {
         Array.from(els.sectionNavBtns).forEach(btn => {
             btn.addEventListener('click', () => {
@@ -1264,7 +1262,6 @@ function setupListeners() {
         });
     }
 
-    // Modo Setup / Operação
     if (els.modeSetupBtn)
         els.modeSetupBtn.addEventListener('click', () => {
             config.adminMode = 'setup';
@@ -1281,7 +1278,6 @@ function setupListeners() {
             showToast('Modo Operação ativado');
         });
 
-    // Backup de configuração
     if (els.configDownloadBtn)
         els.configDownloadBtn.addEventListener('click', () => {
             try {
@@ -1316,7 +1312,6 @@ function setupListeners() {
                         showToast('Arquivo inválido.', 'error');
                         return;
                     }
-                    // merge gentil: preserva chaves desconhecidas atuais também
                     config = { ...config, ...parsed };
                     saveConfig(config);
                     updateUI();
@@ -1331,7 +1326,6 @@ function setupListeners() {
             reader.readAsText(file, 'utf-8');
         });
 
-    // Limpar log
     if (els.statusLogClearBtn)
         els.statusLogClearBtn.addEventListener('click', () => {
             const log = els.statusLog;
@@ -1344,7 +1338,6 @@ function setupListeners() {
             }
         });
 
-    // Relatório de evento
     if (els.eventReportRefresh)
         els.eventReportRefresh.addEventListener('click', () => {
             loadEventReport(true);
@@ -1388,7 +1381,6 @@ function setupListeners() {
                 });
                 if (!res.ok) throw new Error('Erro HTTP');
 
-                // limpa estado local
                 localStorage.removeItem(CONFIG_KEY);
                 localStorage.removeItem(GRID_STATE_KEY);
                 localStorage.removeItem(HIDDEN_IMAGES_KEY);
@@ -1402,7 +1394,6 @@ function setupListeners() {
             }
         });
 }
-
 
 async function fetchGallery() {
     const source = config.sourceMode || 'local';
@@ -1431,52 +1422,118 @@ async function fetchGallery() {
     } catch (e) { }
 }
 
+// --- RENDER GALLERY (Versão Otimizada com Diff Simples) ---
 function renderGallery(images) {
-    const els = getEls(); if (!els.gallery) return;
-    const gs = JSON.parse(localStorage.getItem(GRID_STATE_KEY) || '[]');
-    const usedIds = new Set(gs.filter(id => id));
-    const hiddenIds = getHiddenImages();
+    const els = getEls();
+    if (!els.gallery) return;
 
-    let displayImages = [];
-    if (currentFilter === 'queue') displayImages = images.filter(img => !usedIds.has(img.id) && !hiddenIds.includes(img.id));
-    else if (currentFilter === 'wall') displayImages = images.filter(img => usedIds.has(img.id));
-    else if (currentFilter === 'removed') displayImages = images.filter(img => hiddenIds.includes(img.id));
-
-    els.gallery.innerHTML = '';
-    if (displayImages.length === 0) {
+    if (images.length === 0) {
         els.gallery.innerHTML = `<p class="col-span-full text-center py-4 text-slate-500">Vazio</p>`;
         return;
     }
 
-    displayImages.forEach(img => {
-        const isOnWall = usedIds.has(img.id);
-        const isHidden = hiddenIds.includes(img.id);
-        let border = isOnWall ? 'border-green-500 border-2' : isHidden ? 'border-red-900 border-2 opacity-40' : 'border-blue-500/30 border-2';
+    const emptyMsg = els.gallery.querySelector('p');
+    if (emptyMsg) emptyMsg.remove();
 
-        const div = document.createElement('div');
-        div.className = `aspect-square bg-slate-800 rounded-lg relative overflow-hidden group border ${border}`;
-        div.innerHTML = `
-            <img src="${img.url}" class="w-full h-full object-cover">
-            <div class="absolute inset-0 bg-black/80 hidden group-hover:flex flex-col items-center justify-center gap-2 transition-all backdrop-blur-sm">
-                ${isOnWall
-                ? `<button onclick="actRem('${img.id}')" class="bg-red-600 text-white text-[10px] px-3 py-1 rounded">Remover</button>`
-                : isHidden
-                    ? `<button onclick="actRes('${img.id}')" class="bg-slate-500 text-white text-[10px] px-3 py-1 rounded">Restaurar</button>`
-                    : `<button onclick="actBlk('${img.id}')" class="bg-red-900 text-white text-[10px] px-3 py-1 rounded">Bloquear</button>`
+    const gs = JSON.parse(localStorage.getItem(GRID_STATE_KEY) || '[]');
+    const slotMap = new Map();
+    gs.forEach((id, idx) => { if (id) slotMap.set(id, idx + 1); });
+
+    const hiddenIds = getHiddenImages();
+
+    let displayImages = [];
+    if (currentFilter === 'queue') {
+        displayImages = images.filter(img => !slotMap.has(img.id) && !hiddenIds.includes(img.id));
+    } else if (currentFilter === 'wall') {
+        displayImages = images.filter(img => slotMap.has(img.id));
+    } else if (currentFilter === 'removed') {
+        displayImages = images.filter(img => hiddenIds.includes(img.id));
+    }
+
+    const activeIds = new Set();
+
+    displayImages.forEach(img => {
+        activeIds.add(img.id);
+
+        let card = document.getElementById(`card-${img.id}`);
+        const isOnWall = slotMap.has(img.id);
+        const isHidden = hiddenIds.includes(img.id);
+        const slotNum = slotMap.get(img.id);
+
+        if (!card) {
+            card = document.createElement('div');
+            card.id = `card-${img.id}`;
+            card.className = "aspect-square bg-slate-800 rounded-lg relative overflow-hidden group border-2 transition-all duration-300";
+
+            card.innerHTML = `
+                <img src="${img.url}" class="w-full h-full object-cover">
+                <div class="absolute top-0 left-0 bg-black/60 text-white text-[10px] font-bold px-1 rounded-br ${slotNum ? '' : 'hidden'} slot-badge">
+                    #${slotNum || ''}
+                </div>
+                <div class="absolute inset-0 bg-black/80 hidden group-hover:flex flex-col items-center justify-center gap-2 transition-all backdrop-blur-sm z-10">
+                    <button class="act-btn bg-white text-black text-[10px] px-2 py-1 rounded font-bold uppercase"></button>
+                </div>
+            `;
+
+            const btn = card.querySelector('.act-btn');
+            btn.onclick = () => handleCardAction(img.id, isOnWall, isHidden);
+
+            els.gallery.appendChild(card);
+        }
+
+        const badge = card.querySelector('.slot-badge');
+        const btn = card.querySelector('.act-btn');
+
+        let borderColor = 'border-slate-700';
+        let opacityClass = '';
+
+        if (isOnWall) {
+            borderColor = 'border-green-500';
+        } else if (isHidden) {
+            borderColor = 'border-red-900';
+            opacityClass = 'opacity-50';
+        }
+
+        card.className = `aspect-square bg-slate-800 rounded-lg relative overflow-hidden group border-2 transition-all duration-300 ${borderColor} ${opacityClass}`;
+
+        if (isOnWall) {
+            badge.textContent = `#${slotNum}`;
+            badge.classList.remove('hidden');
+            btn.textContent = 'Remover';
+            btn.className = 'act-btn bg-red-600 text-white text-[10px] px-2 py-1 rounded';
+        } else if (isHidden) {
+            badge.classList.add('hidden');
+            btn.textContent = 'Restaurar';
+            btn.className = 'act-btn bg-slate-500 text-white text-[10px] px-2 py-1 rounded';
+        } else {
+            badge.classList.add('hidden');
+            btn.textContent = 'Bloquear';
+            btn.className = 'act-btn bg-red-900 text-white text-[10px] px-2 py-1 rounded';
+        }
+
+        btn.onclick = () => handleCardAction(img.id, isOnWall, isHidden);
+    });
+
+    Array.from(els.gallery.children).forEach(child => {
+        if (child.id && child.id.startsWith('card-')) {
+            const id = child.id.replace('card-', '');
+            if (!activeIds.has(id)) {
+                child.remove();
             }
-            </div>
-        `;
-        els.gallery.appendChild(div);
+        }
     });
 }
 
-window.actRem = (id) => { addHiddenImage(id); saveConfig(config); fetchGallery(); };
-window.actBlk = (id) => { addHiddenImage(id); saveConfig(config); fetchGallery(); };
-window.actRes = (id) => {
-    let h = getHiddenImages().filter(x => x !== id);
-    localStorage.setItem(HIDDEN_IMAGES_KEY, JSON.stringify(h));
+function handleCardAction(id, onWall, hidden) {
+    if (onWall || !hidden) {
+        addHiddenImage(id);
+    } else {
+        let h = getHiddenImages().filter(x => x !== id);
+        localStorage.setItem(HIDDEN_IMAGES_KEY, JSON.stringify(h));
+        syncChannel.postMessage({ type: 'HIDDEN_UPDATE' });
+    }
     fetchGallery();
-};
+}
 
 async function loadEventReport(showToastFlag = false) {
     const els = getEls();
@@ -1515,7 +1572,6 @@ async function loadEventReport(showToastFlag = false) {
         if (showToastFlag) showToast('Erro ao carregar relatório.', 'error');
     }
 }
-
 
 async function checkServerHealth() {
     try {
@@ -1560,10 +1616,10 @@ function initStatusMonitor() {
     };
 }
 
-
 async function bootAdmin() {
     await restoreStateFromServer();
     config = loadConfig();
+    initAccordions();
     initStatusMonitor();
     checkServerHealth();
     setInterval(checkServerHealth, 10000);

@@ -7,6 +7,7 @@ import { Dropbox } from 'dropbox';
 import sharp from 'sharp';
 import chokidar from 'chokidar';
 import multer from 'multer';
+// import basicAuth from 'basic-auth'; // Descomente se instalar: npm install basic-auth
 
 const __dirname = path.resolve();
 
@@ -28,11 +29,41 @@ const PORT = 3000;
 app.use(cors());
 app.use(express.json());
 
-// Servir arquivos estáticos
-app.use('/processed-images', express.static(PROCESSED_IMAGES_DIR));
-app.use('/camera-input', express.static(CAMERA_INPUT_DIR));
-app.use('/backgrounds', express.static(BACKGROUNDS_DIR));
-app.use('/exports', express.static(EXPORT_DIR));
+/* // Autenticação (Opcional)
+const adminAuth = (req, res, next) => {
+    if (req.method === 'GET' || 
+        req.url.startsWith('/processed-images') || 
+        req.url.startsWith('/backgrounds') || 
+        req.url.startsWith('/exports') || 
+        req.url === '/events' || 
+        req.url === '/api/images' ||
+        req.url === '/api/state') {
+        return next();
+    }
+    const user = basicAuth(req);
+    if (!user || user.name !== 'admin' || user.pass !== 'senha123') {
+        res.set('WWW-Authenticate', 'Basic realm="Social Wall Admin"');
+        return res.status(401).send('Acesso negado');
+    }
+    next();
+};
+app.use(adminAuth); 
+*/
+
+// --- CORREÇÃO CRÍTICA PARA O PRINT (CORS) ---
+// Esse middleware força os headers que permitem que o html2canvas leia as imagens via AJAX/Canvas
+const allowCrossDomain = (req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Content-Length, X-Requested-With');
+    next();
+};
+
+// Aplica a permissão ANTES de servir os arquivos estáticos
+app.use('/processed-images', allowCrossDomain, express.static(PROCESSED_IMAGES_DIR));
+app.use('/camera-input', allowCrossDomain, express.static(CAMERA_INPUT_DIR));
+app.use('/backgrounds', allowCrossDomain, express.static(BACKGROUNDS_DIR));
+app.use('/exports', allowCrossDomain, express.static(EXPORT_DIR));
 
 // --- SSE (LOG PARA CLIENTES) ---
 let sseClients = [];
@@ -99,33 +130,32 @@ app.get('/health', (req, res) => {
 });
 
 // --- OVERLAY DO NÚMERO DO GRID (SVG -> Buffer p/ sharp) ---
-// versão discreta: só texto, sem fundo
 function createGridNumberOverlay(gridNumber) {
     const safeNumber = String(gridNumber);
 
     const svg = `
-        <svg width="160" height="60" xmlns="http://www.w3.org/2000/svg">
-            <style>
-                text {
-                    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-                }
-            </style>
-            <text x="20" y="40"
-                  font-size="30"
-                  fill="#ffffff"
-                  fill-opacity="0.9"
-                  stroke="#000000"
-                  stroke-width="1.5"
-                  paint-order="stroke">
-                #${safeNumber}
-            </text>
-        </svg>
-    `;
+        <svg width="160" height="60" xmlns="http://www.w3.org/2000/svg">
+            <style>
+                text {
+                    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+                }
+            </style>
+            <text x="20" y="40"
+                  font-size="30"
+                  fill="#ffffff"
+                  fill-opacity="0.9"
+                  stroke="#000000"
+                  stroke-width="1.5"
+                  paint-order="stroke">
+                #${safeNumber}
+            </text>
+        </svg>
+    `;
 
     return Buffer.from(svg);
 }
 
-// --- DROPBOX / MONITORAMENTO LONG POLLING ---
+// --- DROPBOX / MONITORAMENTO LONG POLLING COM RETRY AUTOMÁTICO ---
 let dbxMonitorActive = false;
 let currentDbxToken = null;
 
@@ -138,7 +168,6 @@ async function monitorDropbox(token, folderPath) {
     currentDbxToken = token;
     const dbx = new Dropbox({ accessToken: token, fetch: fetch });
 
-    // Normaliza o caminho para a API do Dropbox.
     let pathFolder = (folderPath || '').trim();
     if (pathFolder === '/') {
         pathFolder = '';
@@ -147,6 +176,8 @@ async function monitorDropbox(token, folderPath) {
     }
 
     logToClients(`🚀 Iniciando Monitor Dropbox (Long Polling) no caminho: ${pathFolder || '(Raiz)'}...`, 'system');
+
+    let errorCount = 0;
 
     try {
         logToClients(`[DBX Debug] Obtendo cursor inicial para o caminho: '${pathFolder}'`, 'debug');
@@ -166,65 +197,67 @@ async function monitorDropbox(token, folderPath) {
 
         await processEntries(dbx, listRes.result.entries);
 
+        // Loop principal de monitoramento
         while (dbxMonitorActive && currentDbxToken === token) {
-            logToClients(`[DBX Debug] Iniciando Longpoll com cursor: ${cursor.substring(0, 10)}...`, 'debug');
+            try {
+            // logToClients(`[DBX Debug] Iniciando Longpoll...`, 'debug');
 
-            const pollResult = await dbx.filesListFolderLongpoll({
-                cursor: cursor,
-                timeout: 30
-            });
-            if (pollResult.result.changes) {
-                logToClients(`☁️ Alteração detectada no Dropbox!`, 'info');
-                let hasMore = true;
-                let listResult = await dbx.filesListFolderContinue({ cursor: cursor });
+                const pollResult = await dbx.filesListFolderLongpoll({
+                    cursor: cursor,
+                    timeout: 30
+                });
 
-                while (hasMore) {
-                    logToClients(`[DBX Debug] Processando ${listResult.result.entries.length} alterações.`, 'debug');
-                    await processEntries(dbx, listResult.result.entries);
-                    hasMore = listResult.result.has_more;
-                    cursor = listResult.result.cursor;
-                    if (hasMore) {
-                        listResult = await dbx.filesListFolderContinue({ cursor: cursor });
+                errorCount = 0;
+
+                if (pollResult.result.changes) {
+                    logToClients(`☁️ Alteração detectada no Dropbox!`, 'info');
+                    let hasMore = true;
+                    let listResult = await dbx.filesListFolderContinue({ cursor: cursor });
+
+                    while (hasMore) {
+                        logToClients(`[DBX Debug] Processando ${listResult.result.entries.length} alterações.`, 'debug');
+                        await processEntries(dbx, listResult.result.entries);
+                        hasMore = listResult.result.has_more;
+                        cursor = listResult.result.cursor;
+                        if (hasMore) {
+                            listResult = await dbx.filesListFolderContinue({ cursor: cursor });
+                        }
+                    }
+                } else {
+                    if (pollResult.result.backoff) {
+                        logToClients(
+                            `Backoff solicitado. Aguardando ${pollResult.result.backoff}s.`,
+                            'info'
+                        );
+                        await new Promise(r =>
+                            setTimeout(r, pollResult.result.backoff * 1000)
+                        );
                     }
                 }
-            } else {
-                if (pollResult.result.backoff) {
-                    logToClients(
-                        `Backoff solicitado. Aguardando ${pollResult.result.backoff}s.`,
-                        'info'
-                    );
-                    await new Promise(r =>
-                        setTimeout(r, pollResult.result.backoff * 1000)
-                    );
-                }
+            } catch (pollError) {
+                errorCount++;
+                const waitTime = Math.min(60, errorCount * 5);
+
+                console.error("Erro no polling do Dropbox:", pollError.message);
+                logToClients(`⚠️ Erro conexão Dropbox (${errorCount}). Tentando reconectar em ${waitTime}s...`, 'warn');
+
+                await new Promise(r => setTimeout(r, waitTime * 1000));
             }
         }
     } catch (error) {
-        logToClients(`❌ Erro no Monitor Dropbox: ${error.message}`, 'error');
+        logToClients(`❌ Erro FATAL no Monitor Dropbox: ${error.message}`, 'error');
         dbxMonitorActive = false;
     }
 }
 
 async function processEntries(dbx, entries) {
-    logToClients(`[DBX Debug] Total de entradas para processar: ${entries.length}`, 'debug');
-
-    // Loga todos os itens que o Dropbox enviou.
-    entries.forEach(e => {
-        if (e['.tag'] === 'file') {
-            logToClients(`[DBX Debug] -> Arquivo detectado: ${e.name} (${path.extname(e.name)})`, 'debug');
-        } else if (e['.tag'] === 'folder') {
-            logToClients(`[DBX Debug] -> Pasta detectada: ${e.name}`, 'debug');
-        }
-    });
-
-    // Filtro de arquivos de imagem (adicionado .heic para maior compatibilidade).
     const imageEntries = entries.filter(
         e =>
             e['.tag'] === 'file' &&
             e.name.match(/\.(jpg|jpeg|png|gif|webp|heic)$/i)
     );
 
-    logToClients(`[DBX Debug] Arquivos de imagem que passaram no filtro: ${imageEntries.length}`, 'debug');
+    if (imageEntries.length > 0) logToClients(`[DBX Debug] Arquivos de imagem novos: ${imageEntries.length}`, 'debug');
 
     for (const file of imageEntries) {
         try {
@@ -234,10 +267,7 @@ async function processEntries(dbx, entries) {
                 .readdirSync(PROCESSED_IMAGES_DIR)
                 .find(f => f.includes(fileIdPart));
 
-            if (existing) {
-                logToClients(`[DBX Debug] ⚠️ Ignorando ${file.name}. Já existe em processed-images (ID: ${fileIdPart}).`, 'warn');
-                continue;
-            }
+            if (existing) continue;
 
             const safeName = path
                 .basename(file.name, path.extname(file.name))
@@ -247,19 +277,17 @@ async function processEntries(dbx, entries) {
             )}`;
             const outputPath = path.join(PROCESSED_IMAGES_DIR, fileName);
 
-            logToClients(`[DBX Debug] Tentando download: ${file.path_lower} -> ${outputPath}`, 'debug');
+            logToClients(`[DBX] Baixando: ${file.name}...`, 'debug');
 
             const dl = await dbx.filesDownload({ path: file.path_lower });
             const buffer = dl.result.fileBinary;
-
-            logToClients(`[DBX Debug] Download concluído. Tamanho: ${buffer.length} bytes. Redimensionando...`, 'debug');
 
             await sharp(buffer)
                 .resize(800, 800, { fit: 'cover' })
                 .toFile(outputPath);
 
             logToClients(
-                `☁️ Dropbox: ${file.name} processada (ID: ${fileIdPart})`,
+                `☁️ Dropbox: ${file.name} processada`,
                 'success'
             );
         } catch (err) {
@@ -271,7 +299,7 @@ async function processEntries(dbx, entries) {
     }
 }
 
-// --- WATCHER DA PASTA CAMERA_INPUT (PARA UPLOADS LOCAIS OU VIA SCRIPT) ---
+// --- WATCHER DA PASTA CAMERA_INPUT ---
 const watcher = chokidar.watch(CAMERA_INPUT_DIR, {
     ignored: /(^|[\/\\])\../,
     persistent: true,
@@ -292,7 +320,7 @@ watcher.on('add', async filePath => {
     }
 });
 
-// --- MULTER (UPLOAD DE FOTOS VIA ADMIN) ---
+// --- MULTER (UPLOAD) ---
 const storagePhotos = multer.diskStorage({
     destination: (req, file, cb) => cb(null, CAMERA_INPUT_DIR),
     filename: (req, file, cb) => {
@@ -303,9 +331,11 @@ const storagePhotos = multer.diskStorage({
         cb(null, `local-upload-${Date.now()}-${name}${ext}`);
     }
 });
-const uploadPhotos = multer({ storage: storagePhotos });
+const uploadPhotos = multer({
+    storage: storagePhotos,
+    limits: { fileSize: 20 * 1024 * 1024 }
+});
 
-// MULTER (BACKGROUND)
 const storageBg = multer.diskStorage({
     destination: (req, file, cb) => cb(null, BACKGROUNDS_DIR),
     filename: (req, file, cb) => {
@@ -315,40 +345,36 @@ const storageBg = multer.diskStorage({
 });
 const uploadBg = multer({ storage: storageBg });
 
-// --- BACKUP DE ESTADO (config + grid + bloqueados) ---
+// --- ESTADO (ATÔMICO) ---
 app.get('/api/state', (req, res) => {
     try {
         if (!fs.existsSync(STATE_FILE)) {
-            return res.json({
-                config: null,
-                gridState: [],
-                hiddenImages: []
-            });
+            return res.json({ config: null, gridState: [], hiddenImages: [] });
         }
         const raw = fs.readFileSync(STATE_FILE, 'utf8');
-        const parsed = JSON.parse(raw);
-        res.json(parsed);
+        res.json(JSON.parse(raw));
     } catch (e) {
-        logToClients(`Erro ao ler state: ${e.message}`, 'error');
-        res.json({
-            config: null,
-            gridState: [],
-            hiddenImages: []
-        });
+        res.json({ config: null, gridState: [], hiddenImages: [] });
     }
 });
 
 app.post('/api/state', (req, res) => {
     try {
         const body = req.body || {};
+        if (!body.config && !body.gridState) {
+            return res.status(400).json({ error: "Estado vazio" });
+        }
+
         const snapshot = {
             config: body.config || null,
             gridState: Array.isArray(body.gridState) ? body.gridState : [],
             hiddenImages: Array.isArray(body.hiddenImages) ? body.hiddenImages : []
         };
 
-        fs.writeFileSync(STATE_FILE, JSON.stringify(snapshot, null, 2), 'utf8');
-        logToClients('💾 Estado do mural salvo em wall-state.json', 'system');
+        const tempPath = path.join(path.dirname(STATE_FILE), `wall-state-${Date.now()}.tmp`);
+        fs.writeFileSync(tempPath, JSON.stringify(snapshot, null, 2), 'utf8');
+        fs.renameSync(tempPath, STATE_FILE);
+
         res.json({ success: true });
     } catch (e) {
         logToClients(`Erro ao salvar state: ${e.message}`, 'error');
@@ -356,84 +382,198 @@ app.post('/api/state', (req, res) => {
     }
 });
 
-// --- ROTAS API BÁSICAS ---
+// --- [NOVO] GERADOR DE SNAPSHOT VIA SERVER (COM FILTROS E OPACIDADE) ---
+app.post('/api/generate-wall-snapshot', async (req, res) => {
+    try {
+        if (!fs.existsSync(STATE_FILE)) throw new Error("Sem estado salvo.");
+        const state = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
+        const { config, gridState } = state;
+
+        if (!config || !gridState) throw new Error("Estado incompleto.");
+
+        const W = parseInt(config.screenWidth) || 1920;
+        const H = parseInt(config.screenHeight) || 1080;
+        const cols = parseInt(config.cols) || 4;
+        const rows = parseInt(config.rows) || 3;
+        const gap = parseInt(config.gap) || 0;
+
+        // Recupera filtros (0-100 no config -> normalizado para Sharp)
+        const brightness = (config.bgBrightness ?? 100) / 100; // 1 = 100%
+        const saturation = (config.bgSaturate ?? 100) / 100;   // 0 = P&B
+        const contrast = (config.bgContrast ?? 100) / 100;     // 1 = normal
+        const blurPx = (config.bgBlur ?? 0);
+        // Opacidade das fotos (0 a 1)
+        const photoOpacity = (config.opacity ?? 1);
+        // Opacidade do overlay colorido (Tinta)
+        const overlayStrength = (config.overlayStrength ?? 100) / 100;
+
+        // 1. PREPARAR CAMADA BASE (P&B)
+        // Isso simula o .image-container::before { filter: grayscale(1) ... }
+        let bgBaseBuffer = null;
+        let bgFilteredBuffer = null; // Para o overlay soft-light
+
+        if (config.backgroundUrl) {
+            const bgName = path.basename(config.backgroundUrl);
+            const localBg = path.join(BACKGROUNDS_DIR, bgName);
+
+            if (fs.existsSync(localBg)) {
+                // Background Base (P&B Grayscale)
+                // CSS: grayscale(1) contrast(1.05) brightness(0.9)
+                bgBaseBuffer = await sharp(localBg)
+                    .resize(W, H, { fit: 'cover' })
+                    .grayscale() // Preto e branco
+                    .linear(1.05, -(128 * 0.05)) // Contraste 1.05
+                    .modulate({ brightness: 0.9 }) // Brightness 0.9
+                    .toBuffer();
+
+                // Background Colorido (para Overlay Soft-Light)
+                // CSS: User Filters (Brightness, Contrast, Saturate, Blur)
+                let bgPipe = sharp(localBg).resize(W, H, { fit: 'cover' });
+                bgPipe = bgPipe.modulate({ brightness, saturation });
+                if (contrast !== 1) bgPipe = bgPipe.linear(contrast, -(128 * (contrast - 1)));
+                if (blurPx > 0) bgPipe = bgPipe.blur(0.3 + blurPx / 3);
+
+                bgFilteredBuffer = await bgPipe.toBuffer();
+            }
+        }
+
+        // Fallback se não tiver BG (cinza escuro)
+        if (!bgBaseBuffer) {
+            bgBaseBuffer = await sharp({
+                create: { width: W, height: H, channels: 4, background: { r: 17, g: 24, b: 39, alpha: 1 } }
+            }).png().toBuffer();
+            // Se não tem imagem, o overlay colorido é só a cor de fundo
+            bgFilteredBuffer = bgBaseBuffer;
+        }
+
+        // 2. CALCULAR E COMPOR SLOTS
+        const totalGapW = Math.max(0, (cols - 1) * gap);
+        const totalGapH = Math.max(0, (rows - 1) * gap);
+        const slotW = Math.floor((W - totalGapW) / cols);
+        const slotH = Math.floor((H - totalGapH) / rows);
+
+        const composites = [];
+
+        for (let i = 0; i < gridState.length; i++) {
+            const imgId = gridState[i];
+            if (!imgId) continue;
+
+            const imgPath = path.join(PROCESSED_IMAGES_DIR, imgId);
+            if (!fs.existsSync(imgPath)) continue;
+
+            const col = i % cols;
+            const row = Math.floor(i / cols);
+            const left = col * (slotW + gap);
+            const top = row * (slotH + gap);
+
+            // A. FOTO COM OPACIDADE
+            // Simula: img { opacity: config.opacity }
+            let photoPipe = sharp(imgPath).resize(slotW, slotH, { fit: 'cover' });
+            if (photoOpacity < 1) {
+                const alphaVal = Math.floor(255 * photoOpacity);
+                photoPipe = photoPipe.ensureAlpha().composite([{
+                    input: Buffer.from([0, 0, 0, alphaVal]),
+                    raw: { width: 1, height: 1, channels: 4 },
+                    tile: true,
+                    blend: 'dest-in'
+                }]);
+            }
+            const photoBuf = await photoPipe.toBuffer();
+            composites.push({ input: photoBuf, top, left });
+
+            // B. OVERLAY "SOFT-LIGHT" (REVELAÇÃO TEXTURIZADA)
+            // Simula: ::after { background-image: bg; filter: filters; mix-blend-mode: soft-light; opacity: overlayStrength }
+            if (bgFilteredBuffer) {
+                // Recorta o pedaço exato do BG colorido correspondente a este slot
+                let overlayPipe = sharp(bgFilteredBuffer).extract({ left, top, width: slotW, height: slotH });
+
+                // Aplica a opacidade do overlay (overlayStrength)
+                if (overlayStrength < 1) {
+                    const ovAlpha = Math.floor(255 * overlayStrength);
+                    overlayPipe = overlayPipe.ensureAlpha().composite([{
+                        input: Buffer.from([0, 0, 0, ovAlpha]),
+                        raw: { width: 1, height: 1, channels: 4 },
+                        tile: true,
+                        blend: 'dest-in'
+                    }]);
+                }
+
+                const overlayBuf = await overlayPipe.toBuffer();
+
+                // Adiciona com blend mode soft-light
+                composites.push({ input: overlayBuf, top, left, blend: 'soft-light' });
+            }
+
+            // C. NÚMERO
+            if (config.showGridNumber) {
+                const numSvg = createGridNumberOverlay(i + 1);
+                composites.push({ input: numSvg, top: top + 5, left: left + 5 });
+            }
+        }
+
+        // 3. FINALIZAR
+        const filename = `server-snap-${Date.now()}.jpg`;
+        const outPath = path.join(EXPORT_DIR, filename);
+
+        // Usa o bgBaseBuffer (P&B) como base e aplica as camadas (Foto + Overlay SoftLight)
+        await sharp(bgBaseBuffer)
+            .composite(composites)
+            .toFile(outPath);
+
+        logToClients(`📸 Snapshot fiel gerado: ${filename}`, 'success');
+        res.json({ success: true, url: `/exports/${filename}` });
+
+    } catch (e) {
+        logToClients(`Erro snapshot: ${e.message}`, 'error');
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// --- ROTAS API ---
 
 app.post('/api/upload-wall-snapshot', uploadWallSnapshot.single('file'), (req, res) => {
     try {
-        if (!req.file) {
-            return res.status(400).json({ success: false, error: 'Nenhum arquivo recebido.' });
-        }
+        if (!req.file) return res.status(400).json({ success: false, error: 'Nenhum arquivo recebido.' });
 
-        const relativeFolder = path
-            .relative(EXPORT_DIR, req.file.destination)
-            .replace(/\\/g, '/');
-
+        const relativeFolder = path.relative(EXPORT_DIR, req.file.destination).replace(/\\/g, '/');
         const publicUrl = `/exports/${relativeFolder}/${req.file.filename}`;
 
-        return res.json({
-            success: true,
-            url: publicUrl,
-            filename: req.file.filename
-        });
+        return res.json({ success: true, url: publicUrl });
     } catch (e) {
         console.error('[Wall Snapshot] Erro ao salvar snapshot:', e);
         return res.status(500).json({ success: false, error: 'Erro interno ao salvar snapshot.' });
     }
 });
 
-
-
-
-// 1. Upload de fotos (Admin)
 app.post('/api/upload', uploadPhotos.array('photos', 20), async (req, res) => {
     try {
-        if (!req.files || req.files.length === 0) {
-            return res.status(400).json({ message: 'Nenhum arquivo enviado' });
-        }
+        if (!req.files || req.files.length === 0) return res.status(400).json({ message: 'Vazio' });
 
         for (const file of req.files) {
-            const tempFilepath = file.path;
-            const outputName = `local-${Date.now()}-${path.basename(
-                file.filename
-            )}`;
-            const outputpath = path.join(PROCESSED_IMAGES_DIR, outputName);
-
-            await sharp(tempFilepath)
-                .resize(800, 800, { fit: 'cover' })
-                .toFile(outputpath);
-            fs.unlinkSync(tempFilepath);
+            const outputName = `local-${Date.now()}-${path.basename(file.filename)}`;
+            await sharp(file.path).resize(800, 800, { fit: 'cover' }).toFile(path.join(PROCESSED_IMAGES_DIR, outputName));
+            fs.unlinkSync(file.path);
         }
 
-        logToClients(
-            `📤 ${req.files.length} fotos enviadas via Admin`,
-            'success'
-        );
-        res.status(200).json({
-            message: 'Upload concluído',
-            count: req.files.length
-        });
+        logToClients(`📤 ${req.files.length} fotos enviadas via Admin`, 'success');
+        res.status(200).json({ message: 'OK', count: req.files.length });
     } catch (error) {
         logToClients(`Erro Upload: ${error.message}`, 'error');
         res.status(500).json({ message: 'Erro' });
     }
 });
 
-// 2. Upload de BACKGROUND
 app.post('/api/upload-bg', uploadBg.single('background'), async (req, res) => {
     try {
-        if (!req.file)
-            return res.status(400).json({ message: 'Nenhum arquivo enviado' });
-        const filename = req.file.filename;
-        const url = `http://localhost:${PORT}/backgrounds/${filename}`;
-        logToClients(`🖼️ Novo background definido: ${filename}`, 'success');
+        if (!req.file) return res.status(400).json({ message: 'Vazio' });
+        const url = `http://localhost:${PORT}/backgrounds/${req.file.filename}`;
+        logToClients(`🖼️ Novo background definido`, 'success');
         res.status(200).json({ url });
     } catch (error) {
-        logToClients(`Erro Upload BG: ${error.message}`, 'error');
         res.status(500).json({ message: 'Erro' });
     }
 });
 
-// 3. Iniciar monitor do Dropbox (usado pelo admin.js)
 app.post('/api/dropbox/start', (req, res) => {
     const { token, folder } = req.body;
     if (token) {
@@ -444,33 +584,24 @@ app.post('/api/dropbox/start', (req, res) => {
     }
 });
 
-// 4. Listar imagens para o admin/wall (source = 'dropbox' ou 'local')
 app.get('/api/images', (req, res) => {
     const { source } = req.query;
     const prefix = source === 'dropbox' ? 'dbx-' : 'local-';
     try {
-        const files = fs
-            .readdirSync(PROCESSED_IMAGES_DIR)
-            .filter(
-                f =>
-                    f.startsWith(prefix) &&
-                    f.match(/\.(jpg|jpeg|png|gif|webp)$/i)
-            )
+        const files = fs.readdirSync(PROCESSED_IMAGES_DIR)
+            .filter(f => f.startsWith(prefix) && f.match(/\.(jpg|jpeg|png|gif|webp)$/i))
             .map(f => ({
                 id: f,
                 url: `http://localhost:${PORT}/processed-images/${f}`,
-                timestamp: fs.statSync(path.join(PROCESSED_IMAGES_DIR, f))
-                    .mtimeMs
+                timestamp: fs.statSync(path.join(PROCESSED_IMAGES_DIR, f)).mtimeMs
             }))
             .sort((a, b) => a.timestamp - b.timestamp);
         res.json(files);
     } catch (e) {
-        logToClients(`Erro ao listar imagens: ${e.message}`, 'error');
         res.json([]);
     }
 });
 
-// 5. Remover imagem (usado pelo admin para “tirar da fila”)
 app.delete('/api/images/:filename', (req, res) => {
     try {
         const p = path.join(PROCESSED_IMAGES_DIR, req.params.filename);
@@ -478,7 +609,27 @@ app.delete('/api/images/:filename', (req, res) => {
         logToClients(`Arquivo removido: ${req.params.filename}`, 'warn');
         res.json({ success: true });
     } catch (e) {
-        logToClients(`Erro ao remover arquivo: ${e.message}`, 'error');
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Limpeza de inputs
+app.post('/api/cleanup-processed', (req, res) => {
+    try {
+        const days = req.body.days || 1;
+        const threshold = Date.now() - (days * 24 * 60 * 60 * 1000);
+        let count = 0;
+        fs.readdirSync(PROCESSED_IMAGES_DIR).forEach(file => {
+            if (!file.match(/^(local-|dbx-).+\.(jpg|jpeg|png|webp)$/)) return;
+            const full = path.join(PROCESSED_IMAGES_DIR, file);
+            if (fs.statSync(full).mtimeMs < threshold) {
+                fs.unlinkSync(full);
+                count++;
+            }
+        });
+        logToClients(`🧹 Limpeza Input: ${count} imagens removidas.`, 'warn');
+        res.json({ success: true, count });
+    } catch (e) {
         res.status(500).json({ error: e.message });
     }
 });
@@ -722,6 +873,7 @@ app.post('/api/export-collage', async (req, res) => {
             )}_export_${Date.now()}.jpg`;
             const finalPath = path.join(EXPORT_DIR, filename);
             fs.writeFileSync(finalPath, finalBuffer);
+
             return res.status(200).json({
                 filename,
                 url: `http://localhost:${PORT}/exports/${filename}`,

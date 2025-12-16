@@ -25,7 +25,6 @@ config.bgContrast = config.bgContrast ?? 100;
 config.bgSaturate = config.bgSaturate ?? 100;
 config.bgBlur = config.bgBlur ?? 0;
 
-
 // Defaults: animação de chegada (fly/outline)
 config.entryFlyToSlot = config.entryFlyToSlot ?? false;
 config.entryBorderWidth = config.entryBorderWidth ?? 2;
@@ -71,6 +70,34 @@ const getEls = () => ({
 
 const socialWall = document.getElementById('social-wall');
 
+// --- POLLING RESILIENTE (Melhoria: Recursivo ao invés de setInterval) ---
+const pollImages = async () => {
+    try {
+        const url = `${API_BASE_URL}?source=${config.sourceMode || 'local'}`;
+        const res = await fetch(url);
+        if (res.ok) {
+            const data = await res.json();
+            const prevCount = globalBackendImages.length;
+            globalBackendImages = data;
+
+            if (config.layoutMode === 'fit-all' && data.length !== prevCount) {
+                applyLayoutAndEffects();
+            }
+
+            // Remove classe de erro visual caso a conexão tenha voltado
+            document.body.classList.remove('offline-mode');
+        }
+    } catch (e) {
+        console.warn("Falha na conexão com backend. Tentando reconectar...");
+        // Opcional: Você pode adicionar estilo CSS para .offline-mode (ex: borda vermelha)
+        document.body.classList.add('offline-mode');
+    } finally {
+        // Agenda a próxima tentativa apenas quando a atual terminar
+        // Isso evita empilhamento de requisições em redes lentas
+        setTimeout(pollImages, 3000);
+    }
+};
+
 // --- FUNÇÃO DE EXPORTAÇÃO (SOUVENIR) ---
 function triggerSouvenirExport(photoId, slotDiv, currentConfig, slotIndex) {
     if (!currentConfig.exportEnabled) return;
@@ -93,12 +120,6 @@ function triggerSouvenirExport(photoId, slotDiv, currentConfig, slotIndex) {
 
     // 2. Calcula Coordenadas do Slot
     const slotRect = slotDiv.getBoundingClientRect();
-    // O Wall usa a viewport como referência, mas para garantir precisão, podemos enviar
-    // as dimensões relativas se o servidor precisar calcular proporção.
-    // Aqui enviamos coordenadas absolutas da tela.
-
-    // IMPORTANTE: Se o container do Wall não for 100vw/100vh, isso precisaria de ajuste.
-    // Assumimos tela cheia.
     const slotCoords = {
         x: Math.round(slotRect.left),
         y: Math.round(slotRect.top),
@@ -159,7 +180,6 @@ function triggerSouvenirExport(photoId, slotDiv, currentConfig, slotIndex) {
         });
 }
 
-
 // --- COMUNICAÇÃO (WS/BroadcastChannel) ---
 if (syncChannel) {
     syncChannel.onmessage = (event) => {
@@ -181,8 +201,12 @@ if (syncChannel) {
         if (event.data && event.data.type === 'HIDDEN_UPDATE') {
             setTimeout(processQueueStep, 50);
         }
-        if (msg.type === 'CAPTURE_WALL') {
+        if (event.data.type === 'CAPTURE_WALL') {
             captureFullWallSnapshot(true);
+        }
+        // Listener para testes visuais do Admin
+        if (event.data.type === 'TEST_EFFECT') {
+            handleTestEffectFromAdmin(event.data.data);
         }
     };
 }
@@ -206,11 +230,11 @@ setInterval(() => {
     }
 }, 1000);
 
-
 const SLOT_SELECTOR = '.grid-cell, .slot, .tile, .photo-slot, [data-slot]';
 
 function getAnySlotDivForTest() {
-    const el = document.querySelector(SLOT_SELECTOR);
+    // Tenta pegar o primeiro container de imagem disponível
+    const el = document.querySelector('.image-container');
     return el || null;
 }
 
@@ -258,7 +282,7 @@ async function handleTestEffectFromAdmin(data) {
 
     const slot = getAnySlotDivForTest();
     if (!slot) {
-        console.warn('[Main] TEST_EFFECT: nenhum slot encontrado. Ajuste SLOT_SELECTOR.');
+        console.warn('[Main] TEST_EFFECT: nenhum slot encontrado. O grid pode estar vazio.');
         return;
     }
 
@@ -331,16 +355,6 @@ async function handleTestEffectFromAdmin(data) {
     }
 }
 
-// ✅ Listener do canal (garante que o admin consegue disparar)
-if (syncChannel) {
-    syncChannel.addEventListener('message', (event) => {
-        const msg = event.data || {};
-        if (msg.type === 'TEST_EFFECT') {
-            handleTestEffectFromAdmin(msg.data);
-        }
-    });
-}
-
 // --- LAYOUT ---
 function calculateGridDimensions() {
     // 🔒 Se o layout estiver travado, respeita sempre cols/rows atuais
@@ -390,7 +404,6 @@ function calculateGridDimensions() {
 
     return { cols: config.cols || 4, rows: config.rows || 3 };
 }
-
 
 function applyLayoutAndEffects() {
     if (!socialWall) return;
@@ -590,94 +603,31 @@ function saveGridState(state) {
 }
 
 async function captureFullWallSnapshot(shouldNotifyChannel = false) {
-    if (!socialWall) {
-        console.error('[Wall Snapshot] socialWall não encontrado.');
-        if (shouldNotifyChannel && syncChannel) {
-            try {
-                syncChannel.postMessage({
-                    type: 'CAPTURE_WALL_ERROR',
-                    data: { message: 'socialWall não encontrado' }
-                });
-            } catch { }
-        }
-        return;
-    }
-
-    if (typeof window.html2canvas !== 'function') {
-        console.error('[Wall Snapshot] html2canvas não carregado.');
-        if (shouldNotifyChannel && syncChannel) {
-            try {
-                syncChannel.postMessage({
-                    type: 'CAPTURE_WALL_ERROR',
-                    data: { message: 'html2canvas não carregado' }
-                });
-            } catch { }
-        }
-        return;
-    }
-
-    // Verifica preenchimento (opcionalmente exige full)
-    const totalSlots = (config.cols || 1) * (config.rows || 1);
-    let gridState = loadGridState();
-    if (!Array.isArray(gridState)) gridState = [];
-    const filled = gridState.filter(id => id).length;
-
-    console.log(`[Wall Snapshot] Slots preenchidos: ${filled}/${totalSlots}`);
-
     try {
-        const canvas = await window.html2canvas(socialWall, {
-            useCORS: true,
-            backgroundColor: null,
-            scale: 1
+        console.log("Solicitando snapshot ao servidor...");
+        // Chama a nova rota do servidor
+        const res = await fetch('http://localhost:3000/api/generate-wall-snapshot', {
+            method: 'POST'
         });
 
-        const blob = await new Promise((resolve, reject) => {
-            canvas.toBlob((b) => {
-                if (b) resolve(b);
-                else reject(new Error('Falha ao gerar blob do mural.'));
-            }, 'image/png', 1.0);
-        });
-
-        const formData = new FormData();
-        const filename = `wall-${Date.now()}.png`;
-        formData.append('file', blob, filename);
-        formData.append('eventName', config.eventName || '');
-        formData.append('exportBaseFolder', config.exportBaseFolder || '');
-
-        const res = await fetch('http://localhost:3000/api/upload-wall-snapshot', {
-            method: 'POST',
-            body: formData
-        });
-
-        if (!res.ok) {
-            throw new Error('HTTP ' + res.status);
-        }
+        if (!res.ok) throw new Error('Erro no servidor');
 
         const data = await res.json();
-        console.log('[Wall Snapshot] Salvo em:', data.url);
+        console.log('Snapshot gerado:', data.url);
 
         if (shouldNotifyChannel && syncChannel) {
-            try {
-                syncChannel.postMessage({
-                    type: 'CAPTURE_WALL_DONE',
-                    data: { url: data.url }
-                });
-            } catch { }
+            syncChannel.postMessage({
+                type: 'CAPTURE_WALL_DONE',
+                data: { url: data.url }
+            });
         }
     } catch (e) {
-        console.error('[Wall Snapshot] Erro ao capturar mural:', e);
+        console.error('Erro:', e);
         if (shouldNotifyChannel && syncChannel) {
-            try {
-                syncChannel.postMessage({
-                    type: 'CAPTURE_WALL_ERROR',
-                    data: { message: e.message || 'Erro desconhecido' }
-                });
-            } catch { }
+            syncChannel.postMessage({ type: 'CAPTURE_WALL_ERROR', data: { message: e.message } });
         }
     }
 }
-
-
 
 // --- AUXILIARES DE RENDERIZAÇÃO ---
 function updateSlotNumberOverlay(div, slotIndex, hasImage) {
@@ -695,6 +645,7 @@ function updateSlotNumberOverlay(div, slotIndex, hasImage) {
         'grid-slot-number absolute top-1 left-1 text-white text-[11px] font-semibold ' +
         'drop-shadow-md pointer-events-none select-none';
 
+    label.textContent = `#${gridNumber}`;
 
     if (!existing) {
         div.appendChild(label);
@@ -730,9 +681,81 @@ function updateSlotBackgroundSlice(div, slotIndex, hasImage) {
     div.style.setProperty('--slot-overlay-opacity', String(finalAlpha));
 }
 
-// --- RENDER CURRENT STATE ---
+function renderCurrentState(gridState, imageMap) {
+    const slots = Array.from(socialWall.children);
 
+    slots.forEach((div, i) => {
+        const idInSlot = gridState[i] || null;
+        const currentId = div.getAttribute('data-id') || null;
 
+        // Slot vazio
+        if (!idInSlot) {
+            if (currentId) {
+                div.innerHTML = '';
+                div.setAttribute('data-id', '');
+                updateSlotNumberOverlay(div, i, false);
+                updateSlotBackgroundSlice(div, i, false);
+            }
+            return;
+        }
+
+        // Se imagem não mudou, ignora
+        if (idInSlot === currentId) return;
+
+        const data = imageMap.get(idInSlot);
+        if (!data) return;
+
+        const img = new Image();
+
+        // 1. Permissão de CORS
+        img.crossOrigin = "anonymous";
+
+        img.className = 'w-full h-full object-cover block shadow-lg opacity-0 transition-opacity duration-500';
+
+        img.onload = () => {
+            div.innerHTML = '';
+            div.setAttribute('data-id', idInSlot);
+            div.appendChild(img);
+
+            updateSlotNumberOverlay(div, i, true);
+            updateSlotBackgroundSlice(div, i, true);
+
+            requestAnimationFrame(() => {
+                const useFly = !!config.entryFlyToSlot;
+
+                if (!useFly) {
+                    img.style.opacity = config.opacity;
+                } else {
+                    img.style.opacity = '0';
+                }
+
+                img.style.transform = 'scale(1) translateY(0) rotate(0)';
+
+                if (useFly) {
+                    playEntryFlyToSlot(data.url, div).then(() => {
+                        img.style.opacity = config.opacity;
+                        applyEntryHighlight(div);
+                    });
+                } else {
+                    applyEntryHighlight(div);
+                }
+
+                setTimeout(() => {
+                    triggerSouvenirExport(idInSlot, div, config, i);
+                }, 100);
+            });
+        };
+
+        img.onerror = () => {
+            console.warn(`[Main] Falha ao carregar imagem: ${data.url}`);
+        };
+
+        // 2. Cache Buster: Adiciona ?t=tempo para forçar o navegador a pedir a imagem com permissão nova
+        // Se a URL já tiver query string, usa &, senão usa ?
+        const sep = data.url.includes('?') ? '&' : '?';
+        img.src = `${data.url}${sep}t=${Date.now()}`;
+    });
+}
 function applyEntryHighlight(div) {
     if (!div || !config.entryAnimation) return;
 
@@ -750,7 +773,6 @@ function applyEntryHighlight(div) {
 
     if (bw > 0 && bo > 0) {
         div.style.outline = `${bw}px solid rgba(255,255,255,${bo})`;
-        // negativo para "entrar" no slot (evita cortar fora)
         const off = -Math.min(4, Math.max(1, Math.round(bw / 2)));
         div.style.outlineOffset = `${off}px`;
     } else {
@@ -777,6 +799,7 @@ function playEntryFlyToSlot(url, targetDiv) {
     return new Promise((resolve) => {
         if (!targetDiv) return resolve();
 
+        // 1. Calcula posições de destino (Slot) e centro da tela
         const rect = targetDiv.getBoundingClientRect();
         const cx = window.innerWidth / 2;
         const cy = window.innerHeight / 2;
@@ -785,45 +808,54 @@ function playEntryFlyToSlot(url, targetDiv) {
         const dx = tx - cx;
         const dy = ty - cy;
 
+        // 2. Cria o elemento "fantasma" (Ghost)
         const ghost = document.createElement('img');
         ghost.src = url;
-        ghost.alt = '';
         ghost.className = 'entry-fly-ghost';
         ghost.style.position = 'fixed';
         ghost.style.left = '50%';
         ghost.style.top = '50%';
+        // Tamanho base igual ao do slot final
         ghost.style.width = `${Math.max(1, rect.width)}px`;
         ghost.style.height = `${Math.max(1, rect.height)}px`;
         ghost.style.objectFit = 'cover';
         ghost.style.transformOrigin = 'center center';
         ghost.style.pointerEvents = 'none';
         ghost.style.zIndex = '999999';
-        ghost.style.opacity = '1';
 
-        const bw = Number(config.entryBorderWidth ?? 0);
-        const bo = Number(config.entryBorderOpacity ?? 0) / 100;
-        const br = Number(config.entryBorderRadius ?? 0);
+        // --- ESTADO INICIAL (Melhoria aqui) ---
+        // Começa invisível (opacity 0) e pequena (scale 0.5)
+        ghost.style.opacity = '0';
+        ghost.style.transform = `translate(-50%, -50%) scale(0.5)`;
 
+        // Aplica bordas configuradas no Admin
+        const bw = Number(config.entryBorderWidth ?? 2);
+        const bo = Number(config.entryBorderOpacity ?? 18) / 100;
+        const br = Number(config.entryBorderRadius ?? 14);
         if (bw > 0 && bo > 0) ghost.style.border = `${bw}px solid rgba(255,255,255,${bo})`;
         if (br > 0) ghost.style.borderRadius = `${br}px`;
-
         ghost.style.boxShadow = '0 20px 70px rgba(0,0,0,0.55)';
-
-        const speed = config.entryAnimSpeed || 500; // ms
-        const hold = Math.min(1200, Math.max(350, Math.round((config.entryDuration || 3000) * 0.25)));
-
-        const centerScaleRaw = Number(config.entryFlyCenterScale ?? 2.8);
-        const centerScale = Math.min(8, Math.max(1, centerScaleRaw));
-
-
-        ghost.style.transition = `transform ${speed}ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease-out`;
-        ghost.style.transform = `translate(-50%, -50%) scale(${centerScale})`;
 
         document.body.appendChild(ghost);
 
-        // Espera 1 frame pra garantir que entrou no DOM
+        // Configurações de tempo
+        const speed = config.entryAnimSpeed || 500;
+        // Calcula quanto tempo ficar parada no centro (25% do tempo total ou min 350ms)
+        const hold = Math.min(1200, Math.max(350, Math.round((config.entryDuration || 3000) * 0.25)));
+        // Tamanho máximo no centro
+        const centerScale = Math.min(8, Math.max(1, Number(config.entryFlyCenterScale ?? 1.8)));
+
+        // 3. SEQUÊNCIA DE ANIMAÇÃO
         requestAnimationFrame(() => {
+            // ETAPA A: "Pop-in" (Aparece crescendo e quicando)
+            // cubic-bezier(0.34, 1.56, 0.64, 1) cria o efeito elástico
+            ghost.style.transition = `transform 600ms cubic-bezier(0.34, 1.56, 0.64, 1), opacity 400ms ease-out`;
+
+            ghost.style.opacity = '1';
+            ghost.style.transform = `translate(-50%, -50%) scale(${centerScale})`;
+
             setTimeout(() => {
+                ghost.style.transition = `transform ${speed}ms cubic-bezier(0.4, 0, 0.2, 1), opacity ${speed}ms ease-in`;
                 ghost.style.transform = `translate(-50%, -50%) translate(${dx}px, ${dy}px) scale(1)`;
 
                 setTimeout(() => {
@@ -831,81 +863,14 @@ function playEntryFlyToSlot(url, targetDiv) {
                     setTimeout(() => {
                         ghost.remove();
                         resolve();
-                    }, 220);
-                }, speed + 20);
-            }, hold);
+                    }, 200);
+                }, speed);
+
+            }, 600 + hold);
         });
     });
 }
 
-
-function renderCurrentState(gridState, imageMap) {
-    const slots = Array.from(socialWall.children);
-
-    slots.forEach((div, i) => {
-        const idInSlot = gridState[i] || null;
-        const currentId = div.getAttribute('data-id') || null;
-
-        // Slot vazio ou sem mudança: lógica padrão
-        if (!idInSlot) { /* ... */ return; }
-        if (idInSlot === currentId) { /* ... */ return; }
-
-        // Nova imagem nesse slot
-        div.innerHTML = '';
-        div.setAttribute('data-id', idInSlot);
-
-        const data = imageMap.get(idInSlot);
-        if (!data) { /* ... */ return; }
-
-        const img = document.createElement('img');
-        img.src = data.url;
-        img.className = 'w-full h-full object-cover block shadow-lg';
-        img.style.opacity = '0';
-        // Transição suave para a opacidade
-        img.style.transition = `opacity ${config.animDuration}ms ease-out`;
-
-        let transform = 'scale(0.95)';
-        if (config.animType === 'pop') transform = 'scale(0.5)';
-        else if (config.animType === 'slide-up') transform = 'translateY(50px)';
-        else if (config.animType === 'rotate') transform = 'rotate(-10deg)';
-        img.style.transform = transform;
-
-        div.appendChild(img);
-        updateSlotNumberOverlay(div, i, true);
-        updateSlotBackgroundSlice(div, i, true);
-
-        requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-                const useFly = !!config.entryFlyToSlot;
-
-                if (!useFly) {
-                    img.style.opacity = config.opacity;
-                } else {
-                    // fica invisível no slot até o "fly" terminar
-                    img.style.opacity = '0';
-                }
-
-                img.style.transform = 'scale(1) translateY(0) rotate(0)';
-
-                if (useFly) {
-                    playEntryFlyToSlot(data.url, div).then(() => {
-                        img.style.opacity = config.opacity;
-                        applyEntryHighlight(div);
-                    });
-                } else {
-                    applyEntryHighlight(div);
-                }
-                // 🟢 FIM NOVA LÓGICA 🟢
-
-                // dispara export...
-                const slotDiv = slots[i];
-                setTimeout(() => {
-                    triggerSouvenirExport(idInSlot, slotDiv, config, i);
-                }, 100);
-            });
-        });
-    });
-}
 // --- FILA (UMA POR VEZ) ---
 function processQueueStep() {
     if (globalBackendImages.length === 0) return;
@@ -1005,23 +970,8 @@ async function init() {
     setupLocalListeners();
     updateLocalMenuUI();
 
-    const poll = async () => {
-        try {
-            const url = `${API_BASE_URL}?source=${config.sourceMode || 'local'}`;
-            const res = await fetch(url);
-            if (res.ok) {
-                const data = await res.json();
-                const prevCount = globalBackendImages.length;
-                globalBackendImages = data;
-
-                if (config.layoutMode === 'fit-all' && data.length !== prevCount) {
-                    applyLayoutAndEffects();
-                }
-            }
-        } catch (e) { }
-    };
-    await poll();
-    setInterval(poll, 3000);
+    // Inicia polling resiliente
+    pollImages();
 
     loopQueue();
 
