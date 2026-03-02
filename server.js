@@ -71,6 +71,17 @@ app.use('/camera-input', allowCrossDomain, express.static(CAMERA_INPUT_DIR));
 app.use('/backgrounds', allowCrossDomain, express.static(BACKGROUNDS_DIR));
 app.use('/exports', allowCrossDomain, express.static(EXPORT_DIR));
 
+// Serve os arquivos do frontend (dist/ gerado pelo vite build, ou raiz em dev)
+const DIST_PATH = process.env.DIST_PATH || path.join(__dirname, 'dist');
+const STATIC_PATH = fs.existsSync(DIST_PATH) ? DIST_PATH : __dirname;
+app.use(express.static(STATIC_PATH));
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api') || req.path.startsWith('/events')) return next();
+  const indexFile = path.join(STATIC_PATH, 'index.html');
+  if (fs.existsSync(indexFile)) res.sendFile(indexFile);
+  else next();
+});
+
 // --- SSE (LOG PARA CLIENTES) ---
 let sseClients = [];
 
