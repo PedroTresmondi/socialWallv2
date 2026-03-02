@@ -80,6 +80,12 @@
             gap: 0.75rem;
         }
 
+        .section-nav-btn.current {
+            background-color: rgba(59, 130, 246, 0.4);
+            border-color: #3b82f6;
+            color: white;
+        }
+
         .tab-btn.active {
             background-color: #3b82f6;
             color: white;
@@ -246,15 +252,22 @@
             </div>
 
             <div class="flex flex-col items-end gap-3">
+                <a id="open-wall-btn" href="#" target="_blank" rel="noopener"
+                    class="inline-flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-400 shadow-lg transition"
+                    title="Abre o mural em nova aba (modo telão). Atalho: Alt+W">
+                    📺 Abrir telão
+                </a>
                 <div
                     class="flex items-center gap-2 text-[10px] bg-slate-800/70 border border-slate-700 rounded-full px-2 py-1 shadow">
                     <span class="text-slate-400 uppercase tracking-wide">Modo</span>
                     <button id="mode-setup-btn"
-                        class="px-3 py-1 rounded-full font-semibold bg-indigo-600 text-white border border-indigo-400">
+                        class="px-3 py-1 rounded-full font-semibold bg-indigo-600 text-white border border-indigo-400"
+                        aria-label="Modo Setup: mostra todas as seções de configuração">
                         🛠 Setup
                     </button>
                     <button id="mode-live-btn"
-                        class="px-3 py-1 rounded-full font-semibold bg-slate-800 text-slate-200 border border-slate-600">
+                        class="px-3 py-1 rounded-full font-semibold bg-slate-800 text-slate-200 border border-slate-600"
+                        aria-label="Modo Operação: esconde seções de setup, foco em controle e galeria">
                         🎬 Operação
                     </button>
                 </div>
@@ -280,9 +293,22 @@
     <div id="admin-content-wrapper" class="transition-all duration-200">
         <div class="max-w-7xl mx-auto px-6 pt-4">
             <div id="sticky-nav-panel"
-                class="glass-panel rounded-xl p-2 border border-slate-700/60 sticky z-40 hidden md:block backdrop-blur transition-all duration-200"
+                class="glass-panel rounded-xl p-2 border border-slate-700/60 sticky z-40 backdrop-blur transition-all duration-200"
                 style="top: 100px;">
-                <div class="flex flex-wrap gap-2 text-[11px]" id="section-nav">
+                <label for="section-nav-select" class="md:hidden block text-[10px] text-slate-400 mb-1 uppercase font-bold">Ir para seção</label>
+                <select id="section-nav-select" class="md:hidden w-full mb-2 py-2 px-3 rounded-lg bg-slate-800 border-slate-600 text-sm font-medium" aria-label="Navegar para seção">
+                    <option value="#sec-wizard">⚡ Setup rápido</option>
+                    <option value="#sec-source">1. Fonte</option>
+                    <option value="#sec-control">2. Controle</option>
+                    <option value="#sec-grid">3. Grid & Layout</option>
+                    <option value="#sec-appearance">4. Aparência</option>
+                    <option value="#sec-behavior">5. Comportamento</option>
+                    <option value="#sec-export">6. Export</option>
+                    <option value="#sec-report">7. Relatório</option>
+                    <option value="#sec-backup">8. Backup</option>
+                    <option value="#sec-gallery">🖼 Gerenciador</option>
+                </select>
+                <div class="flex flex-wrap gap-2 text-[11px] hidden md:flex" id="section-nav">
                     <button class="section-nav-btn px-3 py-1 rounded-lg bg-slate-900/70 text-slate-200 border border-slate-700"
                         data-target="#sec-wizard">⚡ Setup rápido</button>
                     <button class="section-nav-btn px-3 py-1 rounded-lg bg-slate-900/70 text-slate-200 border border-slate-700"
@@ -315,10 +341,16 @@
                                 Atualiza conforme você mexe nos sliders/toggles.
                             </p>
                         </div>
-                        <button id="summary-refresh-btn"
-                            class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-[10px] text-slate-200 border border-slate-600">
-                            Atualizar
-                        </button>
+                        <div class="flex items-center gap-2">
+                            <a id="open-wall-from-summary" href="#" target="_blank" rel="noopener"
+                                class="px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-[10px] text-white border border-emerald-500 font-semibold">
+                                📺 Abrir mural
+                            </a>
+                            <button id="summary-refresh-btn"
+                                class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-[10px] text-slate-200 border border-slate-600">
+                                Atualizar
+                            </button>
+                        </div>
                     </div>
 
                     <div id="active-summary-body" class="mt-3">
@@ -488,24 +520,44 @@
                                 Local</button>
                         </div>
                         <div id="dropbox-settings" class="hidden space-y-3">
+                            <p class="text-xs text-amber-400/90 bg-amber-900/30 border border-amber-600/40 rounded px-2 py-1.5">
+                                ⚠️ Não salve o token em computadores compartilhados. Qualquer pessoa com acesso ao Admin pode ver as suas fotos do Dropbox.
+                            </p>
                             <input type="password" id="dropbox-token" class="w-full" placeholder="Access Token">
                             <input type="text" id="dropbox-folder" class="w-full" placeholder="/Pasta">
                             <button id="dropbox-sync-btn"
-                                class="w-full p-3 bg-blue-600 hover:bg-blue-500 rounded-lg font-bold transition text-xs uppercase">🔄
+                                class="w-full p-3 bg-blue-600 hover:bg-blue-500 rounded-lg font-bold transition text-xs uppercase disabled:opacity-60 disabled:cursor-not-allowed"
+                                aria-label="Iniciar sincronização com a pasta do Dropbox"
+                                title="Conecta ao Dropbox e passa a monitorar a pasta. Novas fotos são baixadas e enviadas ao mural.">🔄
                                 Sincronizar</button>
                         </div>
-                        <div id="local-settings" class="hidden">
-                            <div class="p-4 border border-dashed border-slate-700 rounded bg-slate-900/30 text-center">
-                                <p class="text-xs text-slate-400 mb-2">Pasta Monitorada:</p>
-                                <code class="bg-black px-2 py-1 rounded text-yellow-400 font-mono text-xs">/camera-input</code>
-                                </div>
-                                </div>
-                                </div>
+                        <div id="local-settings" class="hidden space-y-3">
+                            <p class="text-xs text-slate-300">
+                                Escolha uma pasta do seu computador para importar as fotos para o mural. Não precisa de Dropbox.
+                            </p>
+                            <button type="button" id="pick-folder-btn"
+                                class="w-full p-3 bg-emerald-600 hover:bg-emerald-500 rounded-lg font-bold transition text-xs uppercase flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                                title="Abre o seletor de pastas do sistema (Chrome/Edge) ou permite escolher arquivos da pasta">
+                                📂 Escolher pasta de imagens
+                            </button>
+                            <input type="file" id="pick-folder-input" multiple accept="image/jpeg,image/png,image/gif,image/webp,image/heic" class="hidden" webkitdirectory directory>
+                            <div id="folder-import-status" class="hidden text-[11px] text-slate-400 space-y-1">
+                                <p id="folder-import-progress"></p>
+                                <p id="folder-import-done" class="text-emerald-400 font-semibold hidden"></p>
+                            </div>
+                            <p class="text-[10px] text-slate-500 border-t border-slate-700/50 pt-2">
+                                Alternativa: arraste arquivos para a pasta <code class="bg-slate-800 px-1 rounded text-yellow-400 font-mono">camera-input</code> do projeto; o servidor processa automaticamente.
+                            </p>
+                        </div>
+                    </div>
+                </div>
 
                     <div id="sec-control" class="glass-panel p-5 rounded-xl border-l-4 border-green-500">
                         <h3 class="text-green-400 font-bold uppercase text-xs tracking-wider mb-4">2. Controle</h3>
                         <button id="toggle-processing"
-                            class="w-full p-4 bg-green-600 hover:bg-green-500 rounded-lg font-bold transition mb-6 flex items-center justify-center gap-2 shadow-lg">
+                            class="w-full p-4 bg-green-600 hover:bg-green-500 rounded-lg font-bold transition mb-6 flex items-center justify-center gap-2 shadow-lg"
+                            aria-label="Iniciar ou pausar a fila de fotos para o mural"
+                            title="Controla se novas fotos entram no mural. Pausar não perde as que já estão na fila.">
                             <span id="toggle-icon">▶️</span> <span id="toggle-text">INICIAR</span>
                         </button>
 
@@ -615,8 +667,8 @@
                                 <span id="gap-value">8px</span>
                             </label>
                             <input type="range" id="grid-gap" min="0" max="50" class="w-full accent-indigo-500">
-                            <label class="flex items-center gap-2 text-xs text-slate-300 mt-2">
-                                <input type="checkbox" id="layout-lock" class="rounded border-slate-600">
+                            <label class="flex items-center gap-2 text-xs text-slate-300 mt-2" title="Quando ativo, o grid não recalcula colunas/linhas automaticamente (útil para manter o layout fixo).">
+                                <input type="checkbox" id="layout-lock" class="rounded border-slate-600" aria-label="Travar autoajuste de layout">
                                 Travar autoajuste de layout
                             </label>
                         </div>
@@ -711,7 +763,7 @@
                                             <span id="overlay-strength-val">100%</span>
                                         </label>
                             <input type="range" id="overlay-strength" min="0" max="100" value="100" class="w-full accent-slate-500 h-1">
-                            <p class="text-[9px] text-slate-500 mt-1">
+                            <p class="text-[9px] text-slate-500 mt-1" title="Quanto maior, mais o fundo aplicado atrás da foto aparece sobre ela no export (overlay).">
                                 Controla o quanto o background colorido “tinge” a foto no souvenir.
                             </p>
                         </div>
@@ -922,7 +974,9 @@
                         </div>
 
                         <button id="clear-hidden-btn"
-                            class="w-full mt-4 p-2 text-xs bg-red-900/30 hover:bg-red-900/50 text-red-300 rounded font-bold">
+                            class="w-full mt-4 p-2 text-xs bg-red-900/30 hover:bg-red-900/50 text-red-300 rounded font-bold"
+                            title="Remove todas as fotos da lista de bloqueadas; elas voltam a poder aparecer no mural."
+                            aria-label="Limpar lista de fotos bloqueadas">
                             🗑️ Limpar Bloqueios
                         </button>
                     </div>
@@ -1047,6 +1101,9 @@
     </div>
 
     <div id="toast-container"></div>
+    <footer class="max-w-7xl mx-auto px-6 py-3 text-center text-[10px] text-slate-500 border-t border-slate-800 mt-8">
+        <p>Atalho: <kbd class="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 font-mono">Alt+W</kbd> abre o telão em nova aba.</p>
+    </footer>
     <script>
 
     // -------- Wizard (Setup Rápido) --------

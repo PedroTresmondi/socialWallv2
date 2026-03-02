@@ -12,7 +12,12 @@
     <!-- CONTAINER PRINCIPAL -->
     <div id="main-container">
         <div id="social-wall" class="w-full h-full"></div>
+        <!-- Overlay "Aguardando fotos" quando não há imagens no mural -->
+        <div id="waiting-overlay" class="waiting-overlay hidden" aria-hidden="true">
+            <p class="waiting-overlay-text">Aguardando fotos…</p>
+            <p class="waiting-overlay-sub">As imagens do Dropbox ou da pasta local aparecerão aqui.</p>
         </div>
+    </div>
 
 
 
@@ -41,6 +46,10 @@
 
         <div class="config-section" style="border-color: rgba(34, 197, 94, 0.3);">
             <h3 class="text-sm font-bold text-green-400 mb-3 uppercase">Controle</h3>
+            <button id="fullscreen-btn" type="button"
+                class="w-full p-3 bg-indigo-600 hover:bg-indigo-500 rounded-lg font-bold transition mb-4 flex items-center justify-center gap-2">
+                ⛶ Tela cheia
+            </button>
             <button id="toggle-processing"
                 class="w-full p-3 bg-green-600 hover:bg-green-500 rounded-lg font-bold transition mb-4 flex items-center justify-center gap-2">
                 <span id="toggle-icon">▶️</span> <span id="toggle-text">Começar</span>

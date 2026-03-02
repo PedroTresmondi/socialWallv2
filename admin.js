@@ -3,6 +3,7 @@ import {
     saveConfig,
     loadConfig,
     API_BASE_URL,
+    API_ORIGIN,
     GRID_STATE_KEY,
     getHiddenImages,
     clearHiddenImages,
@@ -166,6 +167,11 @@ const getEls = () => ({
     modeLocalBtn: document.getElementById('mode-local-btn'),
     dropboxSettings: document.getElementById('dropbox-settings'),
     localSettings: document.getElementById('local-settings'),
+    pickFolderBtn: document.getElementById('pick-folder-btn'),
+    pickFolderInput: document.getElementById('pick-folder-input'),
+    folderImportStatus: document.getElementById('folder-import-status'),
+    folderImportProgress: document.getElementById('folder-import-progress'),
+    folderImportDone: document.getElementById('folder-import-done'),
 
     // Logs / Galeria
     statusLog: document.getElementById('status-log'),
@@ -237,8 +243,11 @@ const getEls = () => ({
 
     // Nav
     sectionNavBtns: document.querySelectorAll('.section-nav-btn'),
+    sectionNavSelect: document.getElementById('section-nav-select'),
     modeSetupBtn: document.getElementById('mode-setup-btn'),
     modeLiveBtn: document.getElementById('mode-live-btn'),
+    openWallBtn: document.getElementById('open-wall-btn'),
+    openWallFromSummary: document.getElementById('open-wall-from-summary'),
 
     // Backup
     configDownloadBtn: document.getElementById('config-download-btn'),
@@ -332,6 +341,18 @@ function showToast(msg, type = 'success') {
     }, 3000);
 }
 
+/** URL do mural (telão) para abrir em nova aba. Mesma origem, index.html com ?tela=1 */
+function getWallUrl() {
+    const base = new URL('index.html', window.location.href);
+    base.searchParams.set('tela', '1');
+    return base.href;
+}
+
+/** Abre o telão em nova aba */
+function openWallInNewTab() {
+    window.open(getWallUrl(), '_blank', 'noopener');
+}
+
 // --- PREVIEW EXPORT ---
 async function generatePreview() {
     const els = getEls();
@@ -345,7 +366,7 @@ async function generatePreview() {
 
     try {
         const source = config.sourceMode || 'local';
-        let url = `http://localhost:3000/api/images?source=${source}`;
+        let url = `${API_BASE_URL}?source=${source}`;
         if (source === 'dropbox') url += `&token=${config.dropboxToken}&folderPath=${config.dropboxFolder}`;
 
         const resList = await fetch(url);
@@ -407,7 +428,7 @@ async function generatePreview() {
             overlayStrength: withBg ? (config.overlayStrength ?? 100) : 0
         };
 
-        const resExp = await fetch('http://localhost:3000/api/export-collage', {
+        const resExp = await fetch(`${API_ORIGIN}/api/export-collage`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(exportData)
@@ -726,6 +747,43 @@ function updateUI() {
     updateActiveSummaryCard();
 }
 
+const FOLDER_UPLOAD_BATCH = 200;
+const IMAGE_EXT_REG = /\.(jpe?g|png|gif|webp|heic)$/i;
+
+/** Obtém lista de File de imagem a partir de um FileSystemDirectoryHandle (Chrome/Edge) */
+async function collectImageFilesFromHandle(handle, files = []) {
+    for await (const entry of handle.values()) {
+        if (entry.kind === 'file') {
+            const name = entry.name.toLowerCase();
+            if (IMAGE_EXT_REG.test(name)) {
+                try {
+                    const file = await entry.getFile();
+                    files.push(file);
+                } catch (_) { /* permissão negada em algum arquivo */ }
+            }
+        } else if (entry.kind === 'directory') {
+            await collectImageFilesFromHandle(entry, files);
+        }
+    }
+    return files;
+}
+
+/** Envia arquivos em lotes para /api/upload-folder e atualiza progresso */
+async function uploadFolderFiles(files, onProgress) {
+    const total = files.length;
+    let sent = 0;
+    for (let i = 0; i < files.length; i += FOLDER_UPLOAD_BATCH) {
+        const chunk = files.slice(i, i + FOLDER_UPLOAD_BATCH);
+        const form = new FormData();
+        chunk.forEach(f => form.append('photos', f));
+        const res = await fetch(`${API_ORIGIN}/api/upload-folder`, { method: 'POST', body: form });
+        if (!res.ok) throw new Error(await res.text());
+        sent += chunk.length;
+        if (onProgress) onProgress(sent, total);
+    }
+    return sent;
+}
+
 async function startDropboxMonitor() {
     const token = config.dropboxToken;
     const folder = config.dropboxFolder;
@@ -735,8 +793,15 @@ async function startDropboxMonitor() {
         return;
     }
 
+    const btn = getEls().dropboxSyncBtn;
+    const originalText = btn ? btn.innerHTML : '🔄 Sincronizar';
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '⏳ Sincronizando...';
+    }
+
     try {
-        const res = await fetch('http://localhost:3000/api/dropbox/start', {
+        const res = await fetch(`${API_ORIGIN}/api/dropbox/start`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -758,6 +823,11 @@ async function startDropboxMonitor() {
     } catch (err) {
         console.error('Erro ao iniciar monitor Dropbox:', err);
         showToast('Erro ao iniciar monitor do Dropbox.', 'error');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        }
     }
     updateActiveSummaryCard();
 }
@@ -1120,7 +1190,7 @@ function setupListeners() {
             const formData = new FormData(); formData.append('background', file);
             els.bgStatus.textContent = "Enviando...";
             try {
-                const res = await fetch('http://localhost:3000/api/upload-bg', { method: 'POST', body: formData });
+                const res = await fetch(`${API_ORIGIN}/api/upload-bg`, { method: 'POST', body: formData });
                 if (res.ok) {
                     const data = await res.json(); change('backgroundUrl', data.url);
                     els.bgStatus.textContent = "Sucesso!"; showToast("Fundo Atualizado");
@@ -1157,6 +1227,98 @@ function setupListeners() {
             showToast("Sincronizando...");
         });
 
+    if (els.pickFolderBtn) {
+        els.pickFolderBtn.addEventListener('click', async () => {
+            const status = els.folderImportStatus;
+            const progressEl = els.folderImportProgress;
+            const doneEl = els.folderImportDone;
+            let files = [];
+
+            if (typeof window.showDirectoryPicker === 'function') {
+                try {
+                    const handle = await window.showDirectoryPicker();
+                    els.pickFolderBtn.disabled = true;
+                    if (progressEl) progressEl.textContent = 'Lendo pasta...';
+                    if (status) status.classList.remove('hidden');
+                    files = await collectImageFilesFromHandle(handle);
+                } catch (e) {
+                    if (e.name !== 'AbortError') showToast('Erro ao acessar pasta: ' + (e.message || 'Permissão negada.'), 'error');
+                    return;
+                } finally {
+                    els.pickFolderBtn.disabled = false;
+                }
+            } else {
+                els.pickFolderInput.click();
+                return;
+            }
+
+            if (files.length === 0) {
+                showToast('Nenhuma imagem encontrada na pasta.', 'error');
+                if (progressEl) progressEl.textContent = '';
+                return;
+            }
+
+            els.pickFolderBtn.disabled = true;
+            if (status) status.classList.remove('hidden');
+            if (doneEl) doneEl.classList.add('hidden');
+            try {
+                await uploadFolderFiles(files, (sent, total) => {
+                    if (progressEl) progressEl.textContent = `Enviando ${sent} de ${total} foto(s)...`;
+                });
+                if (progressEl) progressEl.textContent = '';
+                if (doneEl) {
+                    doneEl.textContent = `✓ ${files.length} foto(s) importada(s).`;
+                    doneEl.classList.remove('hidden');
+                }
+                showToast(`${files.length} foto(s) importada(s) da pasta.`);
+                if (typeof fetchGallery === 'function') fetchGallery();
+                if (typeof updateStats === 'function') updateStats();
+            } catch (e) {
+                showToast('Erro ao enviar fotos: ' + (e.message || 'Tente de novo.'), 'error');
+                if (progressEl) progressEl.textContent = 'Erro no envio.';
+            } finally {
+                els.pickFolderBtn.disabled = false;
+            }
+        });
+    }
+    if (els.pickFolderInput) {
+        els.pickFolderInput.addEventListener('change', async (e) => {
+            const input = e.target;
+            const raw = input.files ? Array.from(input.files) : [];
+            const files = raw.filter(f => IMAGE_EXT_REG.test(f.name));
+            input.value = '';
+            if (files.length === 0) {
+                showToast('Nenhuma imagem na pasta ou formato não suportado.', 'error');
+                return;
+            }
+            const status = els.folderImportStatus;
+            const progressEl = els.folderImportProgress;
+            const doneEl = els.folderImportDone;
+            const btn = els.pickFolderBtn;
+            if (btn) btn.disabled = true;
+            if (status) status.classList.remove('hidden');
+            if (doneEl) doneEl.classList.add('hidden');
+            try {
+                await uploadFolderFiles(files, (sent, total) => {
+                    if (progressEl) progressEl.textContent = `Enviando ${sent} de ${total} foto(s)...`;
+                });
+                if (progressEl) progressEl.textContent = '';
+                if (doneEl) {
+                    doneEl.textContent = `✓ ${files.length} foto(s) importada(s).`;
+                    doneEl.classList.remove('hidden');
+                }
+                showToast(`${files.length} foto(s) importada(s).`);
+                if (typeof fetchGallery === 'function') fetchGallery();
+                if (typeof updateStats === 'function') updateStats();
+            } catch (err) {
+                showToast('Erro ao enviar fotos: ' + (err.message || 'Tente de novo.'), 'error');
+                if (progressEl) progressEl.textContent = 'Erro no envio.';
+            } finally {
+                if (btn) btn.disabled = false;
+            }
+        });
+    }
+
     if (els.toggleBtn)
         els.toggleBtn.addEventListener('click', () => {
             change('processing', !config.processing);
@@ -1167,7 +1329,36 @@ function setupListeners() {
         els.refreshBtn.addEventListener('click', () => { fetchGallery(); showToast("Lista Atualizada"); });
 
     if (els.clearHiddenBtn)
-        els.clearHiddenBtn.addEventListener('click', () => { clearHiddenImages(); fetchGallery(); showToast("Bloqueios Limpos"); });
+        els.clearHiddenBtn.addEventListener('click', () => {
+            if (!confirm('Limpar lista de fotos bloqueadas?\n\nAs fotos voltarão a poder aparecer no mural.')) return;
+            clearHiddenImages();
+            fetchGallery();
+            showToast("Bloqueios limpos.");
+        });
+
+    if (els.openWallBtn) {
+        els.openWallBtn.href = getWallUrl();
+        els.openWallBtn.addEventListener('click', (e) => { e.preventDefault(); openWallInNewTab(); });
+    }
+    if (els.openWallFromSummary) {
+        els.openWallFromSummary.href = getWallUrl();
+        els.openWallFromSummary.addEventListener('click', (e) => { e.preventDefault(); openWallInNewTab(); });
+    }
+    if (els.sectionNavSelect) {
+        els.sectionNavSelect.addEventListener('change', () => {
+            const val = els.sectionNavSelect.value;
+            if (!val) return;
+            const el = document.querySelector(val);
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+    }
+
+    document.addEventListener('keydown', (e) => {
+        if (e.altKey && (e.key === 'w' || e.key === 'W')) {
+            e.preventDefault();
+            openWallInNewTab();
+        }
+    });
 
     const setTab = (tab) => { currentFilter = tab; updateUI(); fetchGallery(); };
     if (els.tabQueue) els.tabQueue.addEventListener('click', () => setTab('queue'));
@@ -1262,6 +1453,27 @@ function setupListeners() {
         });
     }
 
+    // Scroll spy: destaca a seção atual no nav
+    const sectionIds = ['sec-wizard', 'sec-source', 'sec-control', 'sec-grid', 'sec-appearance', 'sec-behavior', 'sec-export', 'sec-report', 'sec-backup', 'sec-gallery'];
+    const sectionNavMap = new Map(sectionIds.map(id => [id, document.querySelector(`[data-target="#${id}"]`)]).filter(([, btn]) => btn));
+    const observer = new IntersectionObserver(
+        (entries) => {
+            entries.forEach(entry => {
+                if (!entry.isIntersecting) return;
+                const id = entry.target.id;
+                sectionNavMap.forEach((btn, sid) => {
+                    if (btn) btn.classList.toggle('current', sid === id);
+                });
+                if (els.sectionNavSelect && id) els.sectionNavSelect.value = `#${id}`;
+            });
+        },
+        { rootMargin: '-100px 0px -60% 0px', threshold: 0 }
+    );
+    sectionIds.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) observer.observe(el);
+    });
+
     if (els.modeSetupBtn)
         els.modeSetupBtn.addEventListener('click', () => {
             config.adminMode = 'setup';
@@ -1345,7 +1557,7 @@ function setupListeners() {
 
     if (els.downloadCsvBtn)
         els.downloadCsvBtn.addEventListener('click', () => {
-            window.open('http://localhost:3000/exports/exports.csv', '_blank');
+            window.open(`${API_ORIGIN}/exports/exports.csv`, '_blank');
         });
 
     if (els.cleanupExportsBtn)
@@ -1353,7 +1565,7 @@ function setupListeners() {
             if (!confirm('Remover exports antigos (mais de 1 dia)?\n\nIsso NÃO remove as fotos originais, apenas os arquivos de souvenir já gerados.'))
                 return;
             try {
-                const res = await fetch('http://localhost:3000/exports/cleanup', {
+                const res = await fetch(`${API_ORIGIN}/exports/cleanup`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ days: 1 })
@@ -1376,7 +1588,7 @@ function setupListeners() {
                 'Tem certeza que deseja resetar o evento?\n\nIsso irá:\n• Limpar layout atual (cols/rows, gaps etc.)\n• Limpar estado local do grid\n• Limpar bloqueios locais (lixeira)\n\nAs fotos originais e exports já gerados NÃO serão apagados.'
             )) return;
             try {
-                const res = await fetch('http://localhost:3000/api/reset-event', {
+                const res = await fetch(`${API_ORIGIN}/api/reset-event`, {
                     method: 'POST'
                 });
                 if (!res.ok) throw new Error('Erro HTTP');
@@ -1397,7 +1609,7 @@ function setupListeners() {
 
 async function fetchGallery() {
     const source = config.sourceMode || 'local';
-    let url = `http://localhost:3000/api/images?source=${source}`;
+    let url = `${API_BASE_URL}?source=${source}`;
     if (source === 'dropbox') url += `&token=${config.dropboxToken}&folderPath=${config.dropboxFolder}`;
     try {
         const res = await fetch(url);
@@ -1540,7 +1752,7 @@ async function loadEventReport(showToastFlag = false) {
     if (!els.eventReportTotal) return;
 
     try {
-        const res = await fetch('http://localhost:3000/exports/events', { cache: 'no-store' });
+        const res = await fetch(`${API_ORIGIN}/exports/events`, { cache: 'no-store' });
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const data = await res.json();
         const summary = Array.isArray(data) && data.length ? data[0] : null;
@@ -1575,7 +1787,7 @@ async function loadEventReport(showToastFlag = false) {
 
 async function checkServerHealth() {
     try {
-        const res = await fetch('http://localhost:3000/health');
+        const res = await fetch(`${API_ORIGIN}/health`);
         updateServerStatus(res.ok);
     } catch (e) {
         updateServerStatus(false);
@@ -1585,7 +1797,7 @@ async function checkServerHealth() {
 function initStatusMonitor() {
     const logEl = document.getElementById('status-log');
 
-    const es = new EventSource('http://localhost:3000/events');
+    const es = new EventSource(`${API_ORIGIN}/events`);
 
     es.onopen = () => {
         updateServerStatus(true);

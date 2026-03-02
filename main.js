@@ -3,6 +3,7 @@ import {
     CONFIG_KEY,
     GRID_STATE_KEY,
     API_BASE_URL,
+    API_ORIGIN,
     loadConfig,
     saveConfig,
     syncChannel,
@@ -66,11 +67,18 @@ const getEls = () => ({
     statBackend: document.getElementById('total-backend-images'),
     statQueue: document.getElementById('queue-count'),
     statScreen: document.getElementById('total-on-screen'),
+    fullscreenBtn: document.getElementById('fullscreen-btn'),
+    captureWallBtn: document.getElementById('capture-wall-btn'),
 });
 
 const socialWall = document.getElementById('social-wall');
 
-// --- POLLING RESILIENTE (Melhoria: Recursivo ao invés de setInterval) ---
+// --- BACKOFF: em falhas consecutivas aumenta o intervalo (3s → 6s → 12s … máx 30s) ---
+let pollFailures = 0;
+const POLL_BASE_MS = 3000;
+const POLL_MAX_MS = 30000;
+
+// --- POLLING RESILIENTE (Recursivo + backoff em falhas) ---
 const pollImages = async () => {
     try {
         const url = `${API_BASE_URL}?source=${config.sourceMode || 'local'}`;
@@ -79,24 +87,91 @@ const pollImages = async () => {
             const data = await res.json();
             const prevCount = globalBackendImages.length;
             globalBackendImages = data;
+            pollFailures = 0;
 
             if (config.layoutMode === 'fit-all' && data.length !== prevCount) {
                 applyLayoutAndEffects();
             }
 
-            // Remove classe de erro visual caso a conexão tenha voltado
             document.body.classList.remove('offline-mode');
+            updateWaitingOverlay();
         }
     } catch (e) {
+        pollFailures++;
         console.warn("Falha na conexão com backend. Tentando reconectar...");
-        // Opcional: Você pode adicionar estilo CSS para .offline-mode (ex: borda vermelha)
         document.body.classList.add('offline-mode');
+        updateWaitingOverlay();
     } finally {
-        // Agenda a próxima tentativa apenas quando a atual terminar
-        // Isso evita empilhamento de requisições em redes lentas
-        setTimeout(pollImages, 3000);
+        const delay = Math.min(POLL_MAX_MS, POLL_BASE_MS * Math.pow(2, pollFailures));
+        setTimeout(pollImages, delay);
     }
 };
+
+// --- OVERLAY "Aguardando fotos" (visível quando não há imagens no mural) ---
+function updateWaitingOverlay() {
+    const overlay = document.getElementById('waiting-overlay');
+    if (!overlay) return;
+    const slots = socialWall ? Array.from(socialWall.children) : [];
+    const hasAnyImage = slots.some(slot => slot.querySelector('img'));
+    const hasBackendImages = globalBackendImages.length > 0;
+    const show = !hasAnyImage && !hasBackendImages;
+    overlay.classList.toggle('hidden', !show);
+    overlay.setAttribute('aria-hidden', String(!show));
+}
+
+// --- SSE: atualização imediata quando novas fotos chegam (Dropbox, câmera, upload) ---
+try {
+    const eventSource = new EventSource(`${API_ORIGIN}/events`);
+    eventSource.onmessage = (e) => {
+        try {
+            const data = JSON.parse(e.data);
+            if (data?.event === 'images_updated') pollImages();
+        } catch (_) { /* mensagens de log não são JSON com event */ }
+    };
+    eventSource.onerror = () => { /* reconexão automática pelo EventSource */ };
+} catch (_) {
+    console.warn('[Wall] SSE não disponível; usando apenas polling a cada 3s.');
+}
+
+// --- TELA CHEIA + WAKE LOCK (telão) ---
+let wakeLockRef = null;
+async function requestWakeLock() {
+    try {
+        if (navigator.wakeLock && !wakeLockRef) {
+            wakeLockRef = await navigator.wakeLock.request('screen');
+            wakeLockRef.addEventListener('release', () => { wakeLockRef = null; });
+        }
+    } catch (_) { /* Wake Lock não suportado ou já ativo */ }
+}
+function releaseWakeLock() {
+    try {
+        if (wakeLockRef) {
+            wakeLockRef.release();
+            wakeLockRef = null;
+        }
+    } catch (_) { }
+}
+function isFullscreen() {
+    return !!(document.fullscreenElement || document.webkitFullscreenElement);
+}
+async function toggleFullscreen() {
+    const el = document.getElementById('main-container') || document.documentElement;
+    try {
+        if (isFullscreen()) {
+            document.exitFullscreen?.() || document.webkitExitFullscreen?.();
+            releaseWakeLock();
+        } else {
+            (el.requestFullscreen?.() || el.webkitRequestFullscreen?.())?.();
+            await requestWakeLock();
+        }
+    } catch (e) {
+        console.warn('[Wall] Fullscreen:', e.message);
+    }
+}
+function updateFullscreenButtonLabel() {
+    const btn = document.getElementById('fullscreen-btn');
+    if (btn) btn.textContent = isFullscreen() ? '⛶ Sair da tela cheia' : '⛶ Tela cheia';
+}
 
 // --- FUNÇÃO DE EXPORTAÇÃO (SOUVENIR) ---
 function triggerSouvenirExport(photoId, slotDiv, currentConfig, slotIndex) {
@@ -159,7 +234,7 @@ function triggerSouvenirExport(photoId, slotDiv, currentConfig, slotIndex) {
         overlayStrength: currentConfig.overlayStrength ?? 100 // Envia força do overlay
     };
 
-    fetch('http://localhost:3000/api/export-collage', {
+    fetch(`${API_ORIGIN}/api/export-collage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(exportData)
@@ -451,6 +526,7 @@ function applyLayoutAndEffects() {
         updateSlotBackgroundSlice(div, i, hasImage);
         updateSlotNumberOverlay(div, i, hasImage);
     });
+    updateWaitingOverlay();
 
     if (config.processing) {
         if (!queueTimeoutId) loopQueue();
@@ -488,6 +564,10 @@ function setupLocalListeners() {
     if (els.openBtn) els.openBtn.addEventListener('click', toggleMenu);
     if (els.closeBtn) els.closeBtn.addEventListener('click', toggleMenu);
     if (els.closeX) els.closeX.addEventListener('click', toggleMenu);
+
+    if (els.fullscreenBtn) els.fullscreenBtn.addEventListener('click', toggleFullscreen);
+    document.addEventListener('fullscreenchange', updateFullscreenButtonLabel);
+    document.addEventListener('webkitfullscreenchange', updateFullscreenButtonLabel);
 
     if (els.captureWallBtn) {
         els.captureWallBtn.addEventListener('click', () => {
@@ -606,7 +686,7 @@ async function captureFullWallSnapshot(shouldNotifyChannel = false) {
     try {
         console.log("Solicitando snapshot ao servidor...");
         // Chama a nova rota do servidor
-        const res = await fetch('http://localhost:3000/api/generate-wall-snapshot', {
+        const res = await fetch(`${API_ORIGIN}/api/generate-wall-snapshot`, {
             method: 'POST'
         });
 
@@ -755,6 +835,7 @@ function renderCurrentState(gridState, imageMap) {
         const sep = data.url.includes('?') ? '&' : '?';
         img.src = `${data.url}${sep}t=${Date.now()}`;
     });
+    updateWaitingOverlay();
 }
 function applyEntryHighlight(div) {
     if (!div || !config.entryAnimation) return;
@@ -989,5 +1070,13 @@ async function init() {
     }, 1000);
 
     window.addEventListener('resize', () => { applyLayoutAndEffects(); });
+
+    // Modo telão: ?tela=1 abre em tela cheia e ativa Wake Lock
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('tela') === '1') {
+        setTimeout(() => {
+            if (!isFullscreen()) toggleFullscreen();
+        }, 500);
+    }
 }
 document.addEventListener('DOMContentLoaded', init);

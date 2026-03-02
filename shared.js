@@ -2,9 +2,12 @@ export const CONFIG_KEY = 'socialWallConfig_v27';
 export const GRID_STATE_KEY = 'socialWallGridState_v27';
 export const HIDDEN_IMAGES_KEY = 'socialWallHidden_v27';
 
-export const API_BASE_URL = 'http://localhost:3000/api/images';
-export const UPLOAD_URL = 'http://localhost:3000/api/upload';
-export const STATE_SYNC_URL = 'http://localhost:3000/api/state';
+// Em deploy, defina window.__SOCIAL_WALL_API__ antes de carregar o app (ex.: <script>window.__SOCIAL_WALL_API__ = 'https://seu-servidor.com';</script>)
+const BASE_URL = (typeof window !== 'undefined' && window.__SOCIAL_WALL_API__) || 'http://localhost:3000';
+export const API_BASE_URL = `${BASE_URL.replace(/\/$/, '')}/api/images`;
+export const UPLOAD_URL = `${BASE_URL.replace(/\/$/, '')}/api/upload`;
+export const STATE_SYNC_URL = `${BASE_URL.replace(/\/$/, '')}/api/state`;
+export const API_ORIGIN = BASE_URL.replace(/\/$/, '');
 
 export const syncChannel = new BroadcastChannel('social_wall_sync_channel_v27');
 

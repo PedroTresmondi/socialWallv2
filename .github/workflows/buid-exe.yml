@@ -1,0 +1,25 @@
+name: Build Executable
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publicar como GitHub Release com auto-update?'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  build:
+    uses: PedroTresmondi/electron-node-wrapper/.github/workflows/build-exe.yml@main
+    with:
+      publish: ${{ inputs.publish || 'false' }}
+    secrets:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_READ_TOKEN: ${{ secrets.GH_READ_TOKEN }}

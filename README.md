@@ -137,3 +137,19 @@ Body (simplificado):
     "blur": 0
   }
 }
+```
+
+---
+
+## Deploy
+
+- **Servidor (Node):** use variáveis de ambiente:
+  - `PORT` – porta (padrão `3000`)
+  - `BASE_URL` – URL pública do servidor (ex.: `https://wall.seudominio.com`), usada nas respostas da API
+  - `CORS_ORIGIN` – origem permitida para CORS (ex.: `https://admin.seudominio.com` ou `*`); omitir = aceita qualquer origem
+- **Frontend (Wall e Admin):** em outro domínio/porta, defina a base do backend antes de carregar o app, por exemplo em `index.html` e `admin.html`:
+  ```html
+  <script>window.__SOCIAL_WALL_API__ = 'https://wall.seudominio.com';</script>
+  ```
+  Assim as chamadas de API e o SSE usam essa URL.
+- **Telão:** abra a Wall com `?tela=1` para entrar em tela cheia e ativar Wake Lock (evita o monitor desligar).
