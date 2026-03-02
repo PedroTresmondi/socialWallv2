@@ -12,11 +12,12 @@ import multer from 'multer';
 const __dirname = path.resolve();
 
 // --- PASTAS ---
-const PROCESSED_IMAGES_DIR = path.join(__dirname, 'processed-images');
-const CAMERA_INPUT_DIR = path.join(__dirname, 'camera-input');
-const BACKGROUNDS_DIR = path.join(__dirname, 'backgrounds');
-const EXPORT_DIR = path.join(__dirname, 'exports');
-const STATE_FILE = path.join(__dirname, 'wall-state.json'); // arquivo de backup
+const DATA_DIR = process.env.DATA_DIR || __dirname;
+const PROCESSED_IMAGES_DIR = path.join(DATA_DIR, 'processed-images');
+const CAMERA_INPUT_DIR = path.join(DATA_DIR, 'camera-input');
+const BACKGROUNDS_DIR = path.join(DATA_DIR, 'backgrounds');
+const EXPORT_DIR = path.join(DATA_DIR, 'exports');
+const STATE_FILE = path.join(DATA_DIR, 'wall-state.json'); // arquivo de backup
 
 // Garante que as pastas existem
 [PROCESSED_IMAGES_DIR, CAMERA_INPUT_DIR, BACKGROUNDS_DIR, EXPORT_DIR].forEach(dir => {
@@ -24,9 +25,14 @@ const STATE_FILE = path.join(__dirname, 'wall-state.json'); // arquivo de backup
 });
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
+const BASE_URL = (process.env.BASE_URL || `http://localhost:${PORT}`).replace(/\/$/, '');
+const CORS_ORIGIN = process.env.CORS_ORIGIN; // ex.: https://admin.seudominio.com ou * (omitir = aceita qualquer origem)
 
-app.use(cors());
+app.use(cors({
+    origin: CORS_ORIGIN === '*' ? '*' : (CORS_ORIGIN || true),
+    optionsSuccessStatus: 200
+}));
 app.use(express.json());
 
 /* // Autenticação (Opcional)
@@ -50,10 +56,10 @@ const adminAuth = (req, res, next) => {
 app.use(adminAuth); 
 */
 
-// --- CORREÇÃO CRÍTICA PARA O PRINT (CORS) ---
-// Esse middleware força os headers que permitem que o html2canvas leia as imagens via AJAX/Canvas
+// --- CORS para recursos estáticos (canvas/print). Em produção use CORS_ORIGIN para restringir. ---
 const allowCrossDomain = (req, res, next) => {
-    res.header('Access-Control-Allow-Origin', '*');
+    const origin = CORS_ORIGIN === '*' ? '*' : (CORS_ORIGIN || req.headers.origin || '*');
+    res.header('Access-Control-Allow-Origin', origin);
     res.header('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS');
     res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Content-Length, X-Requested-With');
     next();
@@ -121,12 +127,23 @@ function logToClients(msg, type = 'log') {
     console.log(`[${type.toUpperCase()}] ${msg}`);
 }
 
+// Notifica clientes (ex.: telão) que a lista de imagens mudou — evita esperar o próximo polling
+function broadcastImagesUpdated() {
+    const payload = JSON.stringify({ event: 'images_updated' });
+    sseClients.forEach(c => c.res.write(`data: ${payload}\n\n`));
+}
+
 // --- HEALTHCHECK SIMPLES ---
 app.get('/health', (req, res) => {
     res.json({
         ok: true,
         time: new Date().toISOString()
     });
+});
+
+// --- CONFIG PÚBLICO (para o frontend saber a base URL em deploy) ---
+app.get('/api/config', (req, res) => {
+    res.json({ baseUrl: BASE_URL });
 });
 
 // --- OVERLAY DO NÚMERO DO GRID (SVG -> Buffer p/ sharp) ---
@@ -290,6 +307,7 @@ async function processEntries(dbx, entries) {
                 `☁️ Dropbox: ${file.name} processada`,
                 'success'
             );
+            broadcastImagesUpdated();
         } catch (err) {
             logToClients(
                 `❌ Erro ao processar arquivo do Dropbox (${file.name}): ${err.message}`,
@@ -314,6 +332,7 @@ watcher.on('add', async filePath => {
             .resize(800, 800, { fit: 'cover' })
             .toFile(path.join(PROCESSED_IMAGES_DIR, outputName));
         logToClients(`📸 Câmera: ${fileName}`, 'success');
+        broadcastImagesUpdated();
         fs.unlinkSync(filePath);
     } catch (err) {
         logToClients(`Erro Câmera: ${err.message}`, 'error');
@@ -335,6 +354,11 @@ const uploadPhotos = multer({
     storage: storagePhotos,
     limits: { fileSize: 20 * 1024 * 1024 }
 });
+const uploadPhotosBulk = multer({
+    storage: storagePhotos,
+    limits: { fileSize: 20 * 1024 * 1024 }
+});
+const FOLDER_UPLOAD_LIMIT = 200;
 
 const storageBg = multer.diskStorage({
     destination: (req, file, cb) => cb(null, BACKGROUNDS_DIR),
@@ -556,6 +580,7 @@ app.post('/api/upload', uploadPhotos.array('photos', 20), async (req, res) => {
         }
 
         logToClients(`📤 ${req.files.length} fotos enviadas via Admin`, 'success');
+        broadcastImagesUpdated();
         res.status(200).json({ message: 'OK', count: req.files.length });
     } catch (error) {
         logToClients(`Erro Upload: ${error.message}`, 'error');
@@ -563,10 +588,30 @@ app.post('/api/upload', uploadPhotos.array('photos', 20), async (req, res) => {
     }
 });
 
+// Upload de pasta inteira (até FOLDER_UPLOAD_LIMIT imagens por vez)
+app.post('/api/upload-folder', uploadPhotosBulk.array('photos', FOLDER_UPLOAD_LIMIT), async (req, res) => {
+    try {
+        if (!req.files || req.files.length === 0) return res.status(400).json({ message: 'Vazio' });
+
+        for (const file of req.files) {
+            const outputName = `local-${Date.now()}-${path.basename(file.filename)}`;
+            await sharp(file.path).resize(800, 800, { fit: 'cover' }).toFile(path.join(PROCESSED_IMAGES_DIR, outputName));
+            fs.unlinkSync(file.path);
+        }
+
+        logToClients(`📂 Pasta: ${req.files.length} foto(s) importada(s)`, 'success');
+        broadcastImagesUpdated();
+        res.status(200).json({ message: 'OK', count: req.files.length });
+    } catch (error) {
+        logToClients(`Erro Upload Pasta: ${error.message}`, 'error');
+        res.status(500).json({ message: 'Erro' });
+    }
+});
+
 app.post('/api/upload-bg', uploadBg.single('background'), async (req, res) => {
     try {
         if (!req.file) return res.status(400).json({ message: 'Vazio' });
-        const url = `http://localhost:${PORT}/backgrounds/${req.file.filename}`;
+        const url = `${BASE_URL}/backgrounds/${req.file.filename}`;
         logToClients(`🖼️ Novo background definido`, 'success');
         res.status(200).json({ url });
     } catch (error) {
@@ -592,7 +637,7 @@ app.get('/api/images', (req, res) => {
             .filter(f => f.startsWith(prefix) && f.match(/\.(jpg|jpeg|png|gif|webp)$/i))
             .map(f => ({
                 id: f,
-                url: `http://localhost:${PORT}/processed-images/${f}`,
+                url: `${BASE_URL}/processed-images/${f}`,
                 timestamp: fs.statSync(path.join(PROCESSED_IMAGES_DIR, f)).mtimeMs
             }))
             .sort((a, b) => a.timestamp - b.timestamp);
@@ -745,7 +790,7 @@ app.post('/api/export-collage', async (req, res) => {
 
             return res.status(200).json({
                 filename,
-                url: `http://localhost:${PORT}/exports/${filename}`,
+                url: `${BASE_URL}/exports/${filename}`,
                 backgroundUsed: false
             });
         }
@@ -796,7 +841,7 @@ app.post('/api/export-collage', async (req, res) => {
             fs.writeFileSync(finalPath, finalBuffer);
             return res.status(200).json({
                 filename,
-                url: `http://localhost:${PORT}/exports/${filename}`,
+                url: `${BASE_URL}/exports/${filename}`,
                 backgroundUsed: false
             });
         }
@@ -876,7 +921,7 @@ app.post('/api/export-collage', async (req, res) => {
 
             return res.status(200).json({
                 filename,
-                url: `http://localhost:${PORT}/exports/${filename}`,
+                url: `${BASE_URL}/exports/${filename}`,
                 backgroundUsed: false
             });
         }
@@ -940,7 +985,7 @@ app.post('/api/export-collage', async (req, res) => {
 
         res.status(200).json({
             filename,
-            url: `http://localhost:${PORT}/exports/${filename}`,
+            url: `${BASE_URL}/exports/${filename}`,
             backgroundUsed: true
         });
     } catch (error) {
@@ -1055,6 +1100,6 @@ app.post('/exports/cleanup', (req, res) => {
 });
 
 app.listen(PORT, () => {
-    console.log(`🚀 Servidor ON: http://localhost:${PORT}`);
+    console.log(`🚀 Servidor ON: ${BASE_URL}`);
     logToClients(`Servidor iniciado na porta ${PORT}`, 'system');
 });
